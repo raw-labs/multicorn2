@@ -212,6 +212,32 @@ class ForeignDataWrapper(object):
         """
         return []
 
+    def can_pushdown_upperrel(self):
+        """
+        Method called from the planner to ask the FDW whether it supports upper
+        relation pushdown (i.e. aggregation, grouping, etc.), and if so return
+        a data structure with appropriate details.
+
+        Return:
+            None if pushdown not supported, otherwise a dictionary containing
+            more granular details for the planning phase, in the form:
+
+            {
+                "groupby_supported": <true_or_false>, # can be ommited if false
+                "agg_functions": ["min", "max", "sum", ...],
+                "supported_operators": [">", "<", "=", ...]
+            }
+
+            Each entry in `agg_functions` list corresponds to the name of a
+            aggregation function in PostgreSQL, which the FDW can pushdown.
+            If a query has a function not in this list it won't be pushed down.
+
+            The `supported_operators` entry lists all operators that can be used
+            in qual (WHERE) clauses so that the aggregation pushdown will still
+            be supported.
+        """
+        return None
+
     def get_path_keys(self):
         u"""
         Method called from the planner to add additional Path to the planner.
@@ -269,7 +295,7 @@ class ForeignDataWrapper(object):
         """
         return []
 
-    def explain(self, quals, columns, sortkeys=None, limit=None, verbose=False):
+    def explain(self, quals, columns, sortkeys=None, aggs=None, group_clauses=None, limit=None, verbose=False):
         """Hook called on explain.
 
         The arguments are the same as the :meth:`execute`, with the addition of
@@ -280,7 +306,7 @@ class ForeignDataWrapper(object):
         """
         return []
 
-    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
+    def execute(self, quals, columns, sortkeys=None, aggs=None, group_clauses=None, limit=None, planid=None):
         """Execute a query in the foreign data wrapper.
 
         This method is called at the first iteration.
@@ -313,6 +339,12 @@ class ForeignDataWrapper(object):
                 should be in the sequence.
             sortkeys (list): A list of :class:`SortKey`
                 that the FDW said it can enforce.
+            aggs (dict): A dictionary mapping aggregation key with function and
+                column to be used in the aggregation operation. Result should be
+                returned under the provided aggregation key.
+            group_clauses (list): A list of columns used in GROUP BY statements.
+                For each column provided the returned response should have a
+                corresponding value in each row using that column name as the key.
 
         Returns:
             An iterable of python objects which can be converted back to PostgreSQL.

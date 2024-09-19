@@ -94,7 +94,7 @@ extractColumns(List *reltargetlist, List *restrictinfolist)
  * objects back to suitable postgresql data structures.
  */
 void
-initConversioninfo(ConversionInfo ** cinfos, AttInMetadata *attinmeta)
+initConversioninfo(ConversionInfo ** cinfos, AttInMetadata *attinmeta, List *upper_rel_targets)
 {
     int			i;
 
@@ -104,7 +104,17 @@ initConversioninfo(ConversionInfo ** cinfos, AttInMetadata *attinmeta)
         Oid			outfuncoid;
         bool		typIsVarlena;
 
+        char *attrname = NameStr(attr->attname);
 
+        if (upper_rel_targets)
+        {
+            /*
+             * For aggregations/groupings the targets lack attname, so we instead
+             * refer to the targets through references generated in
+             * multicorn_extract_upper_rel_info().
+             */
+            attrname = strVal(list_nth(upper_rel_targets, i));
+        }
 
         if (!attr->attisdropped)
         {
