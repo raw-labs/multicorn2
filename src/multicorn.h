@@ -104,7 +104,7 @@ typedef struct MulticornPlanState
 
 	/* qual clauses */
 	List	   *baserestrictinfo;
-    String *rtindex;
+    Integer *rtindex;
 
     /* Actual remote restriction clauses for scan (sans RestrictInfos) */
 	List	   *final_remote_exprs;
@@ -189,7 +189,7 @@ typedef struct MulticornExecState
      * Qual conditions parsed in the MulticornGetForeignRelSize
      */
     List *baserestrictinfo;
-    String *rtindex;
+    Integer *rtindex;
 
     Relation	rel;			/* relcache entry for the foreign table. NULL
 								 * for a foreign join scan. */

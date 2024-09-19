@@ -23,6 +23,7 @@
 #include "commands/defrem.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
+#include "nodes/nodes.h"
 #include "optimizer/clauses.h"
 #include "optimizer/optimizer.h"
 #include "optimizer/tlist.h"
@@ -392,6 +393,21 @@ multicorn_foreign_expr_walker(Node *node,
 					state = FDW_COLLATE_UNSAFE;
 			}
 			break;
+
+    	case T_List:
+        {
+            ListCell *lc;
+
+            foreach(lc, (List *) node)
+            {
+                if (!multicorn_foreign_expr_walker((Node *) lfirst(lc), glob_cxt, outer_cxt))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        break;
 
  		// case T_Const:
         //     {
