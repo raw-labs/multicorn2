@@ -734,10 +734,14 @@ getRelSize(MulticornPlanState * state,
                *p_width,
                *p_startup_cost;
 
+    elog(WARNING, "q1");
     p_targets_set = valuesToPySet(state->target_list);
+    elog(WARNING, "q2");
     p_quals = qualDefsToPyList(state->qual_list, state->cinfos);
+    elog(WARNING, "q3");
     p_rows_and_width = PyObject_CallMethod(state->fdw_instance, "get_rel_size",
                                            "(O,O)", p_quals, p_targets_set);
+    elog(WARNING, "q4");
     errorCheck();
     Py_DECREF(p_targets_set);
     Py_DECREF(p_quals);
@@ -1513,15 +1517,21 @@ datumUnknownToPython(Datum datum, ConversionInfo * cinfo, Oid type)
 }
 
 PyObject *
-datumFloatToPython(Datum datum, ConversionInfo * cinfo)
+datumFloat4ToPython(Datum datum, ConversionInfo * cinfo)
 {
-    ssize_t		numvalue = (ssize_t) DatumGetNumeric(datum);
-    char	   *tempvalue = (char *) DirectFunctionCall1(numeric_out,
-                                                         numvalue);
-    PyObject   *buffer = PyString_FromString(tempvalue),
-               *value = PyFloat_FromString(buffer);
-    Py_DECREF(buffer);
-    return value;
+    PyObject *value;
+
+    float4 floatValue = DatumGetFloat4(datum);
+    return PyFloat_FromDouble((double) floatValue);
+}
+
+PyObject *
+datumFloat8ToPython(Datum datum, ConversionInfo * cinfo)
+{
+    PyObject *value;
+
+    float8 floatValue = DatumGetFloat8(datum);
+    return PyFloat_FromDouble(floatValue);
 }
 
 PyObject *
@@ -1680,8 +1690,9 @@ datumToPython(Datum datum, Oid type, ConversionInfo * cinfo)
         case TIMESTAMPOID:
             return datumTimestampToPython(datum, cinfo);
         case FLOAT4OID:
+            return datumFloat4ToPython(datum, cinfo);
         case FLOAT8OID:
-            return datumFloatToPython(datum, cinfo);
+            return datumFloat8ToPython(datum, cinfo);
         case INT2OID:
         case INT4OID:
         case INT8OID:

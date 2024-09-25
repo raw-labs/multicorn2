@@ -302,12 +302,17 @@ multicornGetForeignRelSize(PlannerInfo *root,
     planstate->fdw_instance = getInstance(foreigntableid);
     planstate->foreigntableid = foreigntableid;
     
+    elog(WARNING, "1");
+
     /* Set the LIMIT clause if passed */
     if (root->limit_tuples > 0) {
         planstate->limit = root->limit_tuples;
     } else {
         planstate->limit = -1; // No LIMIT clause
     }
+
+    elog(WARNING, "2");
+
     /* Set the unique plan identifier */
     planstate->plan_id = pg_atomic_fetch_add_u64(&global_query_counter, 1);
     /* Initialize the conversion info array */
@@ -325,6 +330,9 @@ multicornGetForeignRelSize(PlannerInfo *root,
         needWholeRow = rel->trigdesc && rel->trigdesc->trig_insert_after_row;
         RelationClose(rel);
     }
+
+    elog(WARNING, "3");
+
     if (needWholeRow)
     {
         int			i;
@@ -362,6 +370,9 @@ multicornGetForeignRelSize(PlannerInfo *root,
             }
         }
     }
+
+    elog(WARNING, "4");
+
     /* Extract the restrictions from the plan. */
     foreach(lc, baserel->baserestrictinfo)
     {
@@ -374,8 +385,14 @@ multicornGetForeignRelSize(PlannerInfo *root,
             &planstate->qual_list);
 
     }
+
+    elog(WARNING, "5xx");
+
     /* Inject the "rows" and "width" attribute into the baserel */
     getRelSize(planstate, root, &baserel->rows, &baserel->reltarget->width);
+
+    elog(WARNING, "6");
+
     planstate->width = baserel->reltarget->width;
 }
 
@@ -394,6 +411,8 @@ multicornGetForeignPaths(PlannerInfo *root,
     List				*pathes; /* List of ForeignPath */
     MulticornPlanState	*planstate = baserel->fdw_private;
     ListCell		    *lc;
+
+    elog(WARNING, "c1");
 
     /* These lists are used to handle sort pushdown */
     List				*apply_pathkeys = NULL;
@@ -432,6 +451,8 @@ multicornGetForeignPaths(PlannerInfo *root,
                     &deparsed_pathkeys);
         }
     }
+
+    elog(WARNING, "c2");
 
     /* Add each ForeignPath previously found */
     foreach(lc, pathes)
@@ -482,6 +503,8 @@ multicornGetForeignPlan(PlannerInfo *root,
     Index		scan_relid;
     ListCell   *lc;
     List	   *fdw_scan_tlist = NIL;
+
+    elog(WARNING, "a1");
 
     if (IS_SIMPLE_REL(foreignrel))
 	{
@@ -560,6 +583,8 @@ multicornGetForeignPlan(PlannerInfo *root,
          */
         planstate->rtindex = makeInteger(bms_next_member(root->all_baserels, -1));
     }
+
+    elog(WARNING, "a2");
 
     return make_foreignscan(tlist,
                             scan_clauses,
