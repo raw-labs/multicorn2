@@ -271,16 +271,38 @@ multicornGetForeignRelSize(PlannerInfo *root,
     ListCell   *lc;
     bool		needWholeRow = false;
     TupleDesc	desc;
+    Node* limitNode = root->parse->limitCount;
+    Node* offsetNode = root->parse->limitOffset;
+    bool        hasOffset = offsetNode != NULL;
 
     baserel->fdw_private = planstate;
     planstate->fdw_instance = getInstance(foreigntableid);
     planstate->foreigntableid = foreigntableid;
-    /* Set the LIMIT clause if passed */
-    if (root->limit_tuples > 0) {
-        planstate->limit = root->limit_tuples;
-    } else {
-        planstate->limit = -1; // No LIMIT clause
+
+    planstate->limit = -1;
+    /* See if we can forward LIMIT */
+    if (offsetNode && nodeTag(offsetNode) == T_Const) {
+        /* OFFSET is specified. We can't push LIMIT unless it is specified as 0 OR NULL */
+        Const* constNode = (Const*)offsetNode;
+        if (constNode->constisnull) {
+            /* Same as no OFFSET */
+            hasOffset = false;
+        } else {
+            int64 offsetValue = DatumGetInt64(constNode->constvalue);
+            /* Maybe it's OFFSET 0 */
+            hasOffset = offsetValue > 0;
+        }
     }
+    /* Forward LIMIT _only_ if no OFFSET isn't in the query */
+    if (!hasOffset && limitNode && nodeTag(limitNode) == T_Const) {
+        Const* constNode = (Const*)limitNode;
+        if (constNode->constisnull) {
+            /* Same as LIMIT ALL = no LIMIT */
+        } else {
+            planstate->limit = DatumGetInt64(constNode->constvalue);
+        }
+    }
+
     /* Set the unique plan identifier */
     planstate->plan_id = pg_atomic_fetch_add_u64(&global_query_counter, 1);
     /* Initialize the conversion info array */
@@ -1182,9 +1204,9 @@ serializePlanState(MulticornPlanState * state)
 
     result = lappend(result, serializeDeparsedSortGroup(state->pathkeys));
 
-    /* Serialize the new 'limit' attribute as a DOUBLE */
-    result = lappend(result, makeConst(FLOAT8OID,
-                    -1, InvalidOid, 8, Float8GetDatum(state->limit), false, true));
+    /* Serialize the new 'limit' attribute as an INT8 */
+    result = lappend(result, makeConst(INT8OID,
+                    -1, InvalidOid, 8, Int64GetDatum(state->limit), false, true));
 
     /* Serialize the 'plan_id' attribute as INT8 */
     result = lappend(result, makeConst(INT8OID,
@@ -1218,7 +1240,7 @@ initializeExecState(void *internalstate)
     execstate->nulls = palloc(attnum * sizeof(bool));
 
     /* Deserialize the 'limit' value */
-    execstate->limit = DatumGetFloat8(((Const *) list_nth(values, 4))->constvalue);
+    execstate->limit = DatumGetInt64(((Const *) list_nth(values, 4))->constvalue);
 
     /* Deserialize the 'plan_id' value */
     Datum plan_id_datum = ((Const *) list_nth(values, 5))->constvalue;
