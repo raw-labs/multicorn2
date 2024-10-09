@@ -998,7 +998,7 @@ execute(ForeignScanState *node, ExplainState *es)
         }
         /* Set the limit optional argument if there is a LIMIT clause. */
         if(state->limit != -1) {
-            PyDict_SetItemString(kwargs, "limit", PyFloat_FromDouble(state->limit));
+            PyDict_SetItemString(kwargs, "limit", PyLong_FromLongLong(state->limit));
         }
 
         if(es != NULL){
