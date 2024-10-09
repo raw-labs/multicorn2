@@ -1183,7 +1183,15 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
 {
     if (pyobject == NULL || pyobject == Py_None)
     {
+        appendBinaryStringInfo(buffer, "NULL", 4);
         return;
+    }
+    if (cinfo->atttypoid == JSONOID || cinfo->atttypoid == JSONBOID) {
+       PyObject *p_json = PyImport_ImportModule("json");
+       PyObject *p_dumps = PyObject_GetAttrString(p_json, "dumps");
+       PyObject *s = PyObject_CallFunction(p_dumps, "O", pyobject);
+       pyunicodeToCString(s, buffer, cinfo);
+       return;
     }
     if (PyNumber_Check(pyobject))
     {
