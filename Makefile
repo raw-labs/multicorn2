@@ -1,7 +1,8 @@
 srcdir       = .
 MODULE_big   = multicorn
 OBJS         =  src/errors.o src/python.o src/query.o src/multicorn.o
-PG_CFLAGS = -g -O0
+# Uncomment to have symbols in debuggers
+# PG_CFLAGS = -g -O0
 
 
 DATA         = $(filter-out $(wildcard sql/*--*.sql),$(wildcard sql/*.sql))
@@ -97,7 +98,7 @@ else
 	# --embed required for Py >= 3.8
 	PY_LIBSPEC = $(shell ${PYTHON_CONFIG} --embed >/dev/null && ${PYTHON_CONFIG} --libs --embed || ${PYTHON_CONFIG} --libs)
 	PY_INCLUDESPEC = $(shell ${PYTHON_CONFIG} --includes)
-	PY_CFLAGS = $(shell ${PYTHON_CONFIG} --cflags) -g
+	PY_CFLAGS = $(shell ${PYTHON_CONFIG} --cflags)
 	PY_LDFLAGS = $(shell ${PYTHON_CONFIG} --ldflags)
 	SHLIB_LINK += $(PY_LIBSPEC) $(PY_LDFLAGS) $(PY_ADDITIONAL_LIBS) $(filter -lintl,$(LIBS))
 	override PG_CPPFLAGS  := $(PY_INCLUDESPEC) $(PG_CPPFLAGS)
