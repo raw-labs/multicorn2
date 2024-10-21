@@ -280,26 +280,31 @@ multicornGetForeignRelSize(PlannerInfo *root,
     planstate->foreigntableid = foreigntableid;
 
     planstate->limit = -1;
-    /* See if we can forward LIMIT */
-    if (offsetNode && nodeTag(offsetNode) == T_Const) {
-        /* OFFSET is specified. We can't push LIMIT unless it is specified as 0 OR NULL */
-        Const* constNode = (Const*)offsetNode;
-        if (constNode->constisnull) {
-            /* Same as no OFFSET */
-            hasOffset = false;
-        } else {
-            int64 offsetValue = DatumGetInt64(constNode->constvalue);
-            /* Maybe it's OFFSET 0 */
-            hasOffset = offsetValue > 0;
+
+    /* Only forward LIMIT if the query involves only this table (no joins) */
+    if (list_length(root->parse->jointree->fromlist) == 1)
+    {
+        /* See if we can forward LIMIT */
+        if (offsetNode && nodeTag(offsetNode) == T_Const) {
+            /* OFFSET is specified. We can't push LIMIT unless it is specified as 0 OR NULL */
+            Const* constNode = (Const*)offsetNode;
+            if (constNode->constisnull) {
+                /* Same as no OFFSET */
+                hasOffset = false;
+            } else {
+                int64 offsetValue = DatumGetInt64(constNode->constvalue);
+                /* Maybe it's OFFSET 0 */
+                hasOffset = offsetValue > 0;
+            }
         }
-    }
-    /* Forward LIMIT _only_ if no OFFSET isn't in the query */
-    if (!hasOffset && limitNode && nodeTag(limitNode) == T_Const) {
-        Const* constNode = (Const*)limitNode;
-        if (constNode->constisnull) {
-            /* Same as LIMIT ALL = no LIMIT */
-        } else {
-            planstate->limit = DatumGetInt64(constNode->constvalue);
+        /* Forward LIMIT _only_ if no OFFSET isn't in the query */
+        if (!hasOffset && limitNode && nodeTag(limitNode) == T_Const) {
+            Const* constNode = (Const*)limitNode;
+            if (constNode->constisnull) {
+                /* Same as LIMIT ALL = no LIMIT */
+            } else {
+                planstate->limit = DatumGetInt64(constNode->constvalue);
+            }
         }
     }
 
