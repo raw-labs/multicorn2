@@ -271,8 +271,9 @@ multicornGetForeignRelSize(PlannerInfo *root,
     ListCell   *lc;
     bool		needWholeRow = false;
     TupleDesc	desc;
-    Node* limitNode = root->parse->limitCount;
-    Node* offsetNode = root->parse->limitOffset;
+    bool        safeToPushLimit = true;
+    Node       *limitNode = root->parse->limitCount;
+    Node       *offsetNode = root->parse->limitOffset;
     bool        hasOffset = offsetNode != NULL;
 
     baserel->fdw_private = planstate;
@@ -281,8 +282,56 @@ multicornGetForeignRelSize(PlannerInfo *root,
 
     planstate->limit = -1;
 
-    /* Only forward LIMIT if the query involves only this table (no joins) */
-    if (list_length(root->parse->jointree->fromlist) == 1)
+    /* Check for joins */
+    if (list_length(root->parse->jointree->fromlist) != 1)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for GROUP BY */
+    if (root->parse->groupClause)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for HAVING clause */
+    if (root->parse->havingQual)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for aggregates */
+    if (root->parse->hasAggs)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for window functions */
+    if (root->parse->hasWindowFuncs)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for ORDER BY */
+    if (root->parse->sortClause)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for DISTINCT */
+    if (root->parse->distinctClause)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for set operations (UNION, INTERSECT, EXCEPT) */
+    if (root->parse->setOperations)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Only forward LIMIT if safe to do so */
+    if (safeToPushLimit)
     {
         /* See if we can forward LIMIT */
         if (offsetNode && nodeTag(offsetNode) == T_Const) {
