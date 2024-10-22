@@ -1183,7 +1183,22 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
 {
     if (pyobject == NULL || pyobject == Py_None)
     {
+        appendBinaryStringInfo(buffer, "NULL", 4);
         return;
+    }
+    if (cinfo->atttypoid == JSONOID || cinfo->atttypoid == JSONBOID) {
+       PyObject *multicorn_das = PyImport_ImportModule("multicorn_das");
+       PyObject *p_to_json = PyObject_GetAttrString(multicorn_das, "multicorn_serialize_as_json");
+       PyObject *s = PyObject_CallFunction(p_to_json, "O", pyobject);
+       Py_DECREF(multicorn_das);
+       Py_DECREF(p_to_json);
+       if (PyErr_Occurred()) {
+           PyErr_Print();  // Print the exception traceback to stderr (log)
+           elog(ERROR, "Couldn't serialize Python object to JSON");
+       }
+       pyunicodeToCString(s, buffer, cinfo);
+       Py_DECREF(s);
+       return;
     }
     if (PyNumber_Check(pyobject))
     {
