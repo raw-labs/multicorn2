@@ -1113,7 +1113,11 @@ pysequenceToCString(PyObject *pyobject, StringInfo buffer,
     for (i = 0; i < size; i++)
     {
         p_item = PySequence_GetItem(pyobject, i);
-        pyobjectToCString(p_item, buffer, cinfo);
+        ConversionInfo innerInfo = *cinfo;
+        if (cinfo->atttypoid == JSONARRAYOID) innerInfo.atttypoid = JSONOID;
+        else if (cinfo->atttypoid == JSONBARRAYOID) innerInfo.atttypoid = JSONBOID;
+        // else fingers crossed
+        pyobjectToCString(p_item, buffer, &innerInfo);
         Py_DECREF(p_item);
         if (i != size - 1)
         {
@@ -1187,18 +1191,54 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
         return;
     }
     if (cinfo->atttypoid == JSONOID || cinfo->atttypoid == JSONBOID) {
-       PyObject *multicorn_das = PyImport_ImportModule("multicorn_das");
-       PyObject *p_to_json = PyObject_GetAttrString(multicorn_das, "multicorn_serialize_as_json");
-       PyObject *s = PyObject_CallFunction(p_to_json, "O", pyobject);
-       Py_DECREF(multicorn_das);
-       Py_DECREF(p_to_json);
-       if (PyErr_Occurred()) {
-           PyErr_Print();  // Print the exception traceback to stderr (log)
-           elog(ERROR, "Couldn't serialize Python object to JSON");
-       }
-       pyunicodeToCString(s, buffer, cinfo);
-       Py_DECREF(s);
-       return;
+        PyObject *multicorn_das = PyImport_ImportModule("multicorn_das");
+        PyObject *p_to_json = PyObject_GetAttrString(multicorn_das, "multicorn_serialize_as_json");
+        PyObject *s = PyObject_CallFunction(p_to_json, "O", pyobject);
+        Py_DECREF(multicorn_das);
+        Py_DECREF(p_to_json);
+        if (PyErr_Occurred()) {
+            PyErr_Print();  // Print the exception traceback to stderr (log)
+            elog(ERROR, "Couldn't serialize Python object to JSON");
+        }
+        pyunicodeToCString(s, buffer, cinfo);
+        Py_DECREF(s);
+        return;
+    }
+    if (cinfo->atttypoid == INTERVALOID) {
+        // It's a dictionary. All its values are integers.
+        PyObject *years = PyDict_GetItemString(pyobject, "years");
+        PyObject *months = PyDict_GetItemString(pyobject, "months");
+        PyObject *weeks = PyDict_GetItemString(pyobject, "weeks");
+        PyObject *days = PyDict_GetItemString(pyobject, "days");
+        PyObject *hours = PyDict_GetItemString(pyobject, "hours");
+        PyObject *minutes = PyDict_GetItemString(pyobject, "minutes");
+        PyObject *seconds = PyDict_GetItemString(pyobject, "seconds");
+        PyObject *millis = PyDict_GetItemString(pyobject, "millis");
+        appendBinaryStringInfo(buffer, "P", 1);
+        pynumberToCString(years, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "Y", 1);
+        pynumberToCString(months, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "M", 1);
+        pynumberToCString(weeks, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "W", 1);
+        pynumberToCString(days, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "DT", 2); // D + T to separate time
+        pynumberToCString(hours, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "H", 1);
+        pynumberToCString(minutes, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "M", 1);
+        pynumberToCString(seconds, buffer, cinfo);
+        pynumberToCString(millis, buffer, cinfo);
+        appendBinaryStringInfo(buffer, "S", 1);
+        Py_DECREF(years);
+        Py_DECREF(months);
+        Py_DECREF(weeks);
+        Py_DECREF(days);
+        Py_DECREF(hours);
+        Py_DECREF(minutes);
+        Py_DECREF(seconds);
+        Py_DECREF(millis);
+        return;
     }
     if (PyNumber_Check(pyobject))
     {
