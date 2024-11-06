@@ -117,7 +117,7 @@ static List *multicornImportForeignSchema(ImportForeignSchemaStmt * stmt,
 static void multicorn_xact_callback(XactEvent event, void *arg);
 
 /*	Helpers functions */
-void	   *serializePlanState(MulticornPlanState * planstate);
+void	   *multicornSerializePlanState(MulticornPlanState * planstate);
 MulticornExecState *initializeExecState(void *internal_plan_state);
 
 /* Hash table mapping oid to fdw instances */
@@ -552,7 +552,7 @@ multicornGetForeignPlan(PlannerInfo *root,
                             scan_clauses,
                             scan_relid,
                             scan_clauses,		/* no expressions to evaluate */
-                            serializePlanState(planstate)
+                            multicornSerializePlanState(planstate)
                             , NULL
                             , NULL /* All quals are meant to be rechecked */
                             , NULL
@@ -1246,7 +1246,7 @@ multicornImportForeignSchema(ImportForeignSchemaStmt * stmt,
  *	between the plan and the execution safe.
  */
 void *
-serializePlanState(MulticornPlanState * state)
+multicornSerializePlanState(MulticornPlanState * state)
 {
     List	   *result = NULL;
 
