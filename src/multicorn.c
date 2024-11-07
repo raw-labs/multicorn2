@@ -117,8 +117,8 @@ static List *multicornImportForeignSchema(ImportForeignSchemaStmt * stmt,
 static void multicorn_xact_callback(XactEvent event, void *arg);
 
 /*	Helpers functions */
-void	   *serializePlanState(MulticornPlanState * planstate);
-MulticornExecState *initializeExecState(void *internal_plan_state);
+void	   *multicornSerializePlanState(MulticornPlanState * planstate);
+MulticornExecState *multicornInitializeExecState(void *internal_plan_state);
 
 /* Hash table mapping oid to fdw instances */
 HTAB	   *InstancesHash;
@@ -552,7 +552,7 @@ multicornGetForeignPlan(PlannerInfo *root,
                             scan_clauses,
                             scan_relid,
                             scan_clauses,		/* no expressions to evaluate */
-                            serializePlanState(planstate)
+                            multicornSerializePlanState(planstate)
                             , NULL
                             , NULL /* All quals are meant to be rechecked */
                             , NULL
@@ -597,7 +597,7 @@ multicornBeginForeignScan(ForeignScanState *node, int eflags)
     ListCell   *lc;
     elog(DEBUG3, "starting BeginForeignScan()");
 
-    execstate = initializeExecState(fscan->fdw_private);
+    execstate = multicornInitializeExecState(fscan->fdw_private);
     execstate->values = palloc(sizeof(Datum) * tupdesc->natts);
     execstate->nulls = palloc(sizeof(bool) * tupdesc->natts);
     execstate->qual_list = NULL;
@@ -1246,7 +1246,7 @@ multicornImportForeignSchema(ImportForeignSchemaStmt * stmt,
  *	between the plan and the execution safe.
  */
 void *
-serializePlanState(MulticornPlanState * state)
+multicornSerializePlanState(MulticornPlanState * state)
 {
     List	   *result = NULL;
 
@@ -1274,7 +1274,7 @@ serializePlanState(MulticornPlanState * state)
  *	MulticornExecState
  */
 MulticornExecState *
-initializeExecState(void *internalstate)
+multicornInitializeExecState(void *internalstate)
 {
     MulticornExecState *execstate = palloc0(sizeof(MulticornExecState));
     List	   *values = (List *) internalstate;
