@@ -118,7 +118,7 @@ static void multicorn_xact_callback(XactEvent event, void *arg);
 
 /*	Helpers functions */
 void	   *multicornSerializePlanState(MulticornPlanState * planstate);
-MulticornExecState *initializeExecState(void *internal_plan_state);
+MulticornExecState *multicornInitializeExecState(void *internal_plan_state);
 
 /* Hash table mapping oid to fdw instances */
 HTAB	   *InstancesHash;
@@ -597,7 +597,7 @@ multicornBeginForeignScan(ForeignScanState *node, int eflags)
     ListCell   *lc;
     elog(DEBUG3, "starting BeginForeignScan()");
 
-    execstate = initializeExecState(fscan->fdw_private);
+    execstate = multicornInitializeExecState(fscan->fdw_private);
     execstate->values = palloc(sizeof(Datum) * tupdesc->natts);
     execstate->nulls = palloc(sizeof(bool) * tupdesc->natts);
     execstate->qual_list = NULL;
@@ -1274,7 +1274,7 @@ multicornSerializePlanState(MulticornPlanState * state)
  *	MulticornExecState
  */
 MulticornExecState *
-initializeExecState(void *internalstate)
+multicornInitializeExecState(void *internalstate)
 {
     MulticornExecState *execstate = palloc0(sizeof(MulticornExecState));
     List	   *values = (List *) internalstate;
