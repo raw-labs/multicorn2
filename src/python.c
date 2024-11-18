@@ -20,7 +20,6 @@
 #include "access/xact.h"
 #include "utils/lsyscache.h"
 
-
 List	   *getOptions(Oid foreigntableid);
 bool		compareOptions(List *options1, List *options2);
 
@@ -444,8 +443,10 @@ getColumnsFromTable(TupleDesc desc, PyObject **p_columns, List **columns)
     PyObject   *columns_dict = *p_columns;
     List	   *columns_list = *columns;
 
+    elog(DEBUG1, "Calling 'getColumnsFromTable'");
     if ((columns_dict != NULL) && (columns_list != NULL))
     {
+        elog(WARNING, "columns_dict = %p, columns_list = %p", columns_dict, columns_list);
         return;
     }
     else
@@ -484,6 +485,7 @@ getColumnsFromTable(TupleDesc desc, PyObject **p_columns, List **columns)
                 List	   *columnDef = NULL;
 
                 errorCheck();
+                elog(DEBUG1, "Adding column %s (%d, %s, %s)", key, typOid, base_type, modded_type);
                 columnDef = lappend(columnDef, makeString(pstrdup(key)));
                 columnDef = lappend(columnDef, makeConst(TYPEOID,
                                    -1, InvalidOid, 4, ObjectIdGetDatum(typOid), false, true));
@@ -496,6 +498,7 @@ getColumnsFromTable(TupleDesc desc, PyObject **p_columns, List **columns)
                 Py_DECREF(column);
             }
         }
+        elog(DEBUG1, "Added all columns");
         Py_DECREF(p_columnclass);
         Py_DECREF(p_collections);
         Py_DECREF(p_dictclass);
@@ -607,10 +610,12 @@ getCacheEntry(Oid foreigntableid)
     }
     else
     {
+        elog(DEBUG1, "Found table %d in cache", foreigntableid);
         /* Even if found, we have to check several things */
         if (!compareOptions(entry->options, options))
         {
             /* Options have changed, we must purge the cache. */
+            elog(DEBUG1, "compareOptions => false");
             Py_XDECREF(entry->value);
             needInitialization = true;
         }
@@ -620,6 +625,7 @@ getCacheEntry(Oid foreigntableid)
             getColumnsFromTable(desc, &p_columns, &columns);
             if (!compareColumns(columns, entry->columns))
             {
+                elog(DEBUG1, "compareColumns => false");
                 Py_XDECREF(entry->value);
                 needInitialization = true;
             }
@@ -736,6 +742,7 @@ getRelSize(MulticornPlanState * state,
 
     p_targets_set = valuesToPySet(state->target_list);
     p_quals = qualDefsToPyList(state->qual_list, state->cinfos);
+    elog(DEBUG1, "Calling 'get_rel_size'");
     p_rows_and_width = PyObject_CallMethod(state->fdw_instance, "get_rel_size",
                                            "(O,O)", p_quals, p_targets_set);
     errorCheck();
@@ -751,8 +758,11 @@ getRelSize(MulticornPlanState * state,
     p_startup_cost = PyNumber_Long(
                PyObject_GetAttrString(state->fdw_instance, "_startup_cost"));
     *rows = PyLong_AsDouble(p_rows);
+    elog(DEBUG1, "Got rows = %lf", *rows);
     *width = (int) PyLong_AsLong(p_width);
+    elog(DEBUG1, "Got width = %d", *width);
     state->startupCost = (int) PyLong_AsLong(p_startup_cost);
+    elog(DEBUG1, "Got startupCost = %d", state->startupCost);
     Py_DECREF(p_rows);
     Py_DECREF(p_width);
     Py_DECREF(p_rows_and_width);
