@@ -20,6 +20,7 @@
 #include "access/xact.h"
 #include "utils/lsyscache.h"
 
+
 List	   *getOptions(Oid foreigntableid);
 bool		compareOptions(List *options1, List *options2);
 
