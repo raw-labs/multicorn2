@@ -161,6 +161,7 @@ void		errorCheck(void);
 PyObject   *pgstringToPyUnicode(const char *string);
 char	  **pyUnicodeToPgString(PyObject *pyobject);
 
+void       setHstoreArrayOid(Oid oid);
 PyObject   *getInstance(Oid foreigntableid);
 PyObject   *qualToPyObject(Expr *expr, PlannerInfo *root);
 PyObject   *getClassString(const char *className);
