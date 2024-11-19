@@ -2,3 +2,4 @@ comment = 'Multicorn2 Python3.9+ bindings for Postgres 12++ Foreign Data Wrapper
 default_version = '3.0'
 module_pathname = '$libdir/multicorn'
 relocatable = true
+requires = 'hstore'
