@@ -49,15 +49,16 @@ PyObject *paramDefToPython(List *paramdef, ConversionInfo ** cinfos,
 
 
 PyObject   *datumToPython(Datum node, Oid typeoid, ConversionInfo * cinfo);
-PyObject   *datumStringToPython(Datum node, ConversionInfo * cinfo);
-PyObject   *datumBlankPaddedStringToPython(Datum datum, ConversionInfo * cinfo);
-PyObject   *datumNumberToPython(Datum node, ConversionInfo * cinfo);
-PyObject   *datumDateToPython(Datum datum, ConversionInfo * cinfo);
-PyObject   *datumTimestampToPython(Datum datum, ConversionInfo * cinfo);
-PyObject   *datumIntToPython(Datum datum, ConversionInfo * cinfo);
-PyObject   *datumArrayToPython(Datum datum, Oid type, ConversionInfo * cinfo);
-PyObject   *datumByteaToPython(Datum datum, ConversionInfo * cinfo);
-PyObject   *datumUnknownToPython(Datum datum, ConversionInfo * cinfo, Oid type);
+static PyObject   *datumStringToPython(Datum node, ConversionInfo * cinfo);
+static PyObject   *datumBlankPaddedStringToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumFloat4ToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumFloat8ToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumDateToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumTimestampToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumIntToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumArrayToPython(Datum datum, Oid type, ConversionInfo * cinfo);
+static PyObject   *datumByteaToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumUnknownToPython(Datum datum, ConversionInfo * cinfo, Oid type);
 
 
 void pythonDictToTuple(PyObject *p_value,
@@ -84,6 +85,7 @@ void pysequenceToCString(PyObject *pyobject, StringInfo buffer,
                     ConversionInfo * cinfo);
 void pymappingToCString(PyObject *pyobject, StringInfo buffer,
                    ConversionInfo * cinfo);
+void hstoreArrayToCString(PyObject *pyobject, Py_ssize_t size, StringInfo buffer);
 void pydateToCString(PyObject *pyobject, StringInfo buffer,
                 ConversionInfo * cinfo);
 
@@ -95,10 +97,22 @@ void appendBinaryStringInfoQuote(StringInfo buffer,
                             Py_ssize_t strlength,
                             bool need_quote);
 
+void hstoreEscapedString(PyObject *s, StringInfo buffer);
 
 static void begin_remote_xact(CacheEntry * entry);
 
 static char* ascii_encoding_name = "ascii";
+
+static Oid hstore_array_oid = InvalidOid;
+
+void setHstoreArrayOid(Oid oid) {
+    if (oid == InvalidOid) {
+        /* The HSTORE extension should have been loaded upfront. */
+        elog(ERROR, "Invalid HSTORE array OID (is the 'hstore' extension loaded?)");
+    }
+    elog(INFO, "Setting HSTORE array OID to %d", oid);
+    hstore_array_oid = oid;
+}
 
 /*
  * Get a (python) encoding name for an attribute.
@@ -246,6 +260,41 @@ appendBinaryStringInfoQuote(StringInfo buffer,
     else
     {
         appendBinaryStringInfo(buffer, tempbuffer, strlength);
+    }
+}
+
+/* The function dumps a python string into a StringInfo buffer, but assuming
+ * it's already within double quotes. Doubles quotes and backslashes are escaped.
+ * This is to render keys and values within an HSTORE encoded as a string:
+ * - key or value "b" becomes \"b\"
+ * -              "b c" becomes \"b c\"
+ * -              "b\"c" becomes \"b\\\"c\"
+ * -              "b\\c" becomes \"b\\\\c\"
+ */
+void
+hstoreEscapedString(PyObject *str, StringInfo buffer)
+{
+    char *tempbuffer;
+    char *c;
+    int i;
+    Py_ssize_t strlength = 0;
+    if (PyString_AsStringAndSize(str, &tempbuffer, &strlength) < 0)
+    {
+        ereport(WARNING,
+                (errmsg("An error occured while decoding the column"),
+                 errhint("You should maybe return unicode instead?")));
+    } else {
+        appendBinaryStringInfo(buffer, "\\\"", 2);
+        for (c = tempbuffer, i = 0; i < strlength; ++i, ++c) {
+            if (*c == '"') {
+                appendBinaryStringInfo(buffer, "\\\\\\\"", 4);
+            } else if (*c == '\\') {
+                appendBinaryStringInfo(buffer, "\\\\\\\\", 4);
+            } else {
+                appendStringInfoChar(buffer, *c);
+            }
+        }
+        appendBinaryStringInfo(buffer, "\\\"", 2);
     }
 }
 
@@ -945,7 +994,7 @@ execute(ForeignScanState *node, ExplainState *es)
     {
         MulticornBaseQual *qual = lfirst(lc);
         MulticornConstQual *newqual = NULL;
-        bool		isNull;
+        bool		isNull = true;
         ExprState  *expr_state = NULL;
 
         switch (qual->right_type)
@@ -1117,25 +1166,31 @@ pysequenceToCString(PyObject *pyobject, StringInfo buffer,
         pyunknownToCstring(pyobject, buffer, cinfo);
         return;
     }
-    appendStringInfoChar(buffer, '{');
-    /* We are an array, so we need to quote stuff */
-    cinfo->need_quote = true;
-    cinfo->attndims = cinfo->attndims - 1;
-    for (i = 0; i < size; i++)
-    {
-        p_item = PySequence_GetItem(pyobject, i);
-        ConversionInfo innerInfo = *cinfo;
-        if (cinfo->atttypoid == JSONARRAYOID) innerInfo.atttypoid = JSONOID;
-        else if (cinfo->atttypoid == JSONBARRAYOID) innerInfo.atttypoid = JSONBOID;
-        // else fingers crossed
-        pyobjectToCString(p_item, buffer, &innerInfo);
-        Py_DECREF(p_item);
-        if (i != size - 1)
+    if (cinfo->atttypoid == hstore_array_oid) {
+        /* Arrays of HSTORE aren't formatted like regular arrays */
+        hstoreArrayToCString(pyobject, size, buffer);
+    } else {
+        /* Arrays are formatted as comma-separated list of items */
+        appendStringInfoChar(buffer, '{');
+        /* We are an array, so we need to quote stuff */
+        cinfo->need_quote = true;
+        cinfo->attndims = cinfo->attndims - 1;
+        for (i = 0; i < size; i++)
         {
-            appendBinaryStringInfo(buffer, ", ", 2);
+            ConversionInfo innerInfo = *cinfo;
+            p_item = PySequence_GetItem(pyobject, i);
+            if (cinfo->atttypoid == JSONARRAYOID) innerInfo.atttypoid = JSONOID;
+            else if (cinfo->atttypoid == JSONBARRAYOID) innerInfo.atttypoid = JSONBOID;
+            // else fingers crossed
+            pyobjectToCString(p_item, buffer, &innerInfo);
+            Py_DECREF(p_item);
+            if (i != size - 1)
+            {
+                appendBinaryStringInfo(buffer, ", ", 2);
+            }
         }
+        appendStringInfoChar(buffer, '}');
     }
-    appendStringInfoChar(buffer, '}');
     cinfo->attndims = previous_dims;
     cinfo->need_quote = previous_needquote;
 }
@@ -1177,6 +1232,55 @@ pymappingToCString(PyObject *pyobject, StringInfo buffer,
     cinfo->need_quote = need_quote;
 }
 
+/* Function to render an HSTORE ARRAY as a string (used to
+ * load HSTORE arrays into Postgres. Each inner HSTORE is
+ * wrapped into double quotes. Key and value strings
+ * have to be escaped */
+void
+hstoreArrayToCString(PyObject *array, Py_ssize_t n_items, StringInfo buffer)
+{
+    Py_ssize_t	i;
+    appendStringInfoChar(buffer, '{');
+    for (i = 0; i < n_items; i++) {
+        PyObject   *hstore = PySequence_GetItem(array, i);
+        PyObject   *hstore_items = PyMapping_Items(hstore);
+        Py_ssize_t	size = PyList_Size(hstore_items);
+        Py_ssize_t  j;
+        appendStringInfoChar(buffer, '"');
+        for (j = 0; j < size; j++)
+        {
+            PyObject* current_tuple = PySequence_GetItem(hstore_items, j);
+            PyObject* key = PyTuple_GetItem(current_tuple, 0);
+            PyObject* value = PyTuple_GetItem(current_tuple, 1);
+            hstoreEscapedString(key, buffer);
+            appendBinaryStringInfo(buffer, "=>", 2);
+            if (value == Py_None)
+            {
+                appendBinaryStringInfo(buffer, "NULL", 4);
+            }
+            else
+            {
+                hstoreEscapedString(value, buffer);
+            }
+            if (j != size - 1)
+            {
+                appendBinaryStringInfo(buffer, ", ", 2);
+            }
+            Py_DECREF(key);
+            Py_DECREF(value);
+            Py_DECREF(current_tuple);
+        }
+        Py_DECREF(hstore_items);
+        appendStringInfoChar(buffer, '"');
+
+        if (i != n_items - 1)
+        {
+            appendBinaryStringInfo(buffer, ", ", 2);
+        }
+    }
+    appendStringInfoChar(buffer, '}');
+}
+
 void
 pydateToCString(PyObject *pyobject, StringInfo buffer,
                 ConversionInfo * cinfo)
@@ -1198,10 +1302,12 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
 {
     if (pyobject == NULL || pyobject == Py_None)
     {
+        elog(DEBUG1, "Importing NULL (OID=%d)", cinfo->atttypoid);
         appendBinaryStringInfo(buffer, "NULL", 4);
         return;
     }
     if (cinfo->atttypoid == JSONOID || cinfo->atttypoid == JSONBOID) {
+        elog(DEBUG1, "Importing Python object as JSON (OID=%d)", cinfo->atttypoid);
         PyObject *multicorn_das = PyImport_ImportModule("multicorn_das");
         PyObject *p_to_json = PyObject_GetAttrString(multicorn_das, "multicorn_serialize_as_json");
         PyObject *s = PyObject_CallFunction(p_to_json, "O", pyobject);
@@ -1216,6 +1322,7 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
         return;
     }
     if (cinfo->atttypoid == INTERVALOID) {
+        elog(DEBUG1, "Importing Python interval (OID=%d)", cinfo->atttypoid);
         // It's a dictionary. All its values are integers.
         PyObject *years = PyDict_GetItemString(pyobject, "years");
         PyObject *months = PyDict_GetItemString(pyobject, "months");
@@ -1253,35 +1360,42 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
     }
     if (PyNumber_Check(pyobject))
     {
+        elog(DEBUG1, "Importing Python number (OID=%d)", cinfo->atttypoid);
         pynumberToCString(pyobject, buffer, cinfo);
         return;
     }
     if (PyUnicode_Check(pyobject))
     {
+        elog(DEBUG1, "Importing Python unicode string (OID=%d)", cinfo->atttypoid);
         pyunicodeToCString(pyobject, buffer, cinfo);
         return;
     }
     if (PyBytes_Check(pyobject))
     {
+        elog(DEBUG1, "Importing Python bytes (OID=%d)", cinfo->atttypoid);
         pystringToCString(pyobject, buffer, cinfo);
         return;
     }
     if (PySequence_Check(pyobject))
     {
+        elog(DEBUG1, "Importing Python sequence (OID=%d)", cinfo->atttypoid);
         pysequenceToCString(pyobject, buffer, cinfo);
         return;
     }
     if (PyMapping_Check(pyobject))
     {
+        elog(DEBUG1, "Importing Python map (OID=%d)", cinfo->atttypoid);
         pymappingToCString(pyobject, buffer, cinfo);
         return;
     }
     PyDateTime_IMPORT;
     if (PyDate_Check(pyobject))
     {
+        elog(DEBUG1, "Importing Python date (OID=%d)", cinfo->atttypoid);
         pydateToCString(pyobject, buffer, cinfo);
         return;
     }
+    elog(WARNING, "Unexpected type OID=%d, trying generic data import", cinfo->atttypoid);
     pyunknownToCstring(pyobject, buffer, cinfo);
 }
 
@@ -1468,7 +1582,7 @@ datumStringToPython(Datum datum, ConversionInfo * cinfo)
     return result;
 }
 
-PyObject *
+static PyObject *
 datumBlankPaddedStringToPython(Datum datum, ConversionInfo * cinfo)
 {
     char	   *temp;
@@ -1482,7 +1596,7 @@ datumBlankPaddedStringToPython(Datum datum, ConversionInfo * cinfo)
     return result;
 }
 
-PyObject *
+static PyObject *
 datumUnknownToPython(Datum datum, ConversionInfo * cinfo, Oid type)
 {
     char	   *temp;
@@ -1501,21 +1615,21 @@ datumUnknownToPython(Datum datum, ConversionInfo * cinfo, Oid type)
     return result;
 }
 
-PyObject *
+static PyObject *
 datumFloat4ToPython(Datum datum, ConversionInfo * cinfo)
 {
     float4 float4Value = DatumGetFloat4(datum);
     return PyFloat_FromDouble(float4Value);
 }
 
-PyObject *
+static PyObject *
 datumFloat8ToPython(Datum datum, ConversionInfo * cinfo)
 {
     float8 float8Value = DatumGetFloat8(datum);
     return PyFloat_FromDouble(float8Value);
 }
 
-PyObject *
+static PyObject *
 datumDateToPython(Datum datum, ConversionInfo * cinfo)
 {
     struct pg_tm *pg_tm_value = palloc(sizeof(struct pg_tm));
@@ -1532,7 +1646,7 @@ datumDateToPython(Datum datum, ConversionInfo * cinfo)
     return result;
 }
 
-PyObject *
+static PyObject *
 datumTimeToPython(Datum datum, ConversionInfo *cinfo)
 {
     struct pg_tm *pg_tm_value = palloc(sizeof(struct pg_tm));
@@ -1572,19 +1686,19 @@ datumTimestampToPython(Datum datum, ConversionInfo * cinfo)
     return result;
 }
 
-PyObject *
+static PyObject *
 datumIntToPython(Datum datum, ConversionInfo * cinfo)
 {
     return PyLong_FromLong(DatumGetInt32(datum));
 }
 
-PyObject *
+static PyObject *
 datumBoolToPython(Datum datum, ConversionInfo * cinfo)
 {
     return PyBool_FromLong(DatumGetBool(datum));
 }
 
-PyObject *
+static PyObject *
 datumDecimalToPython(Datum datum, ConversionInfo *cinfo)
 {
     char *decimalStr;
@@ -1599,7 +1713,7 @@ datumDecimalToPython(Datum datum, ConversionInfo *cinfo)
     return result;
 }
 
-PyObject *
+static PyObject *
 datumArrayToPython(Datum datum, Oid type, ConversionInfo * cinfo)
 {
     ArrayIterator iterator = array_create_iterator(DatumGetArrayTypeP(datum), 0, NULL);
@@ -1638,7 +1752,7 @@ datumArrayToPython(Datum datum, Oid type, ConversionInfo * cinfo)
 }
 
 
-PyObject *
+static PyObject *
 datumByteaToPython(Datum datum, ConversionInfo * cinfo)
 {
     text	   *txt = DatumGetByteaP(datum);

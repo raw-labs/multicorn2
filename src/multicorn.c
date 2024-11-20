@@ -27,6 +27,7 @@
 #include "parser/parsetree.h"
 #include "fmgr.h"
 #include "port/atomics.h"
+#include "catalog/namespace.h"
 
 #if PG_VERSION_NUM >= 130000
 #include "common/hashfn.h" /* oid_hash */
@@ -116,6 +117,9 @@ static List *multicornImportForeignSchema(ImportForeignSchemaStmt * stmt,
 
 static void multicorn_xact_callback(XactEvent event, void *arg);
 
+/* We use HSTOREs and HSTORE ARRAYs and need to set once and for all the array Oid */
+void setHstoreArrayOid(Oid oid);
+
 /*	Helpers functions */
 void	   *multicornSerializePlanState(MulticornPlanState * planstate);
 MulticornExecState *multicornInitializeExecState(void *internal_plan_state);
@@ -166,6 +170,14 @@ _PG_init()
     InstancesHash = hash_create("multicorn instances", 32,
                                 &ctl,
                                 HASH_ELEM | HASH_FUNCTION);
+    {
+        Oid hstoreArrayOid = GetSysCacheOid2(TYPENAMENSP,
+             Anum_pg_type_oid,
+             CStringGetDatum("_hstore"),
+             ObjectIdGetDatum(get_namespace_oid("public", false)));
+
+        setHstoreArrayOid(hstoreArrayOid);
+    }
     MemoryContextSwitchTo(oldctx);
 }
 
