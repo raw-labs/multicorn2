@@ -1701,13 +1701,14 @@ datumBoolToPython(Datum datum, ConversionInfo * cinfo)
 static PyObject *
 datumDecimalToPython(Datum datum, ConversionInfo *cinfo)
 {
-    char *decimalStr;
-    PyObject *result;
+    char *decimalStr = StrDatumGetCString(DirectFunctionCall1(numeric_out, datum));
+    PyObject *p_decimal = PyImport_ImportModule("decimal");
+    PyObject *p_Decimal = PyObject_GetAttrString(p_decimal, "Decimal");
 
-    decimalStr = DatumGetCString(DirectFunctionCall1(numeric_out, datum));
+    PyObject *result = PyObject_CallFunction(p_Decimal, "s", decimalStr);
 
-    result = PyObject_CallFunction(PyImport_ImportModule("decimal")->ob_type, "s", decimalStr);
-
+    Py_DECREF(p_decimal);
+    Py_DECREF(p_Decimal);
     pfree(decimalStr);
 
     return result;
