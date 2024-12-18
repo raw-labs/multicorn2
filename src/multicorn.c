@@ -642,6 +642,8 @@ multicornIterateForeignScan(ForeignScanState *node)
 {
     TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
     MulticornExecState *execstate = node->fdw_state;
+    PG_TRY();
+    {
     PyObject   *p_value;
 
     if (execstate->p_iterator == NULL)
@@ -656,6 +658,8 @@ multicornIterateForeignScan(ForeignScanState *node)
         return slot;
     }
     p_value = PyIter_Next(execstate->p_iterator);
+    elog(WARNING, "interruptPending = %d", InterruptPending);
+    CHECK_FOR_INTERRUPTS();
     errorCheck();
     /* A none value results in an empty slot. */
     if (p_value == NULL || p_value == Py_None)
@@ -669,6 +673,17 @@ multicornIterateForeignScan(ForeignScanState *node)
     ExecStoreVirtualTuple(slot);
     Py_DECREF(p_value);
 
+    }
+    PG_CATCH();
+    {
+        elog(WARNING, "oulala");
+        if (execstate->p_iterator != NULL)
+        {
+            PyObject_CallMethod(execstate->p_iterator, "close", "()");
+        }
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
     return slot;
 }
 
