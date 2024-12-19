@@ -499,13 +499,15 @@ makeQual(AttrNumber varattno, char *opname, Expr *value, bool isarray,
             qual->right_type = T_Var;
             ((MulticornVarQual *) qual)->rightvarattno = ((Var *) value)->varattno;
             break;
-        default:
-                    elog(DEBUG3, "default");
+        case T_Param:
+                    elog(DEBUG3, "T_Param");
             qual = palloc0(sizeof(MulticornParamQual));
             qual->right_type = T_Param;
             ((MulticornParamQual *) qual)->expr = value;
             qual->typeoid = InvalidOid;
             break;
+        default:
+            return NULL;
     }
     qual->varattno = varattno;
     qual->opname = opname;

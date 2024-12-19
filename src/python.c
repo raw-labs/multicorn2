@@ -334,6 +334,9 @@ qualDefsToPyList(List *qual_list, ConversionInfo ** cinfos)
     foreach(lc, qual_list)
     {
         MulticornBaseQual *qual_def = (MulticornBaseQual *) lfirst(lc);
+        if (!qual_def) {
+            continue;
+        }
 
         if (qual_def->right_type == T_Const)
         {
@@ -995,6 +998,9 @@ execute(ForeignScanState *node, ExplainState *es)
     foreach(lc, state->qual_list)
     {
         MulticornBaseQual *qual = lfirst(lc);
+        if (!qual) {
+            continue;
+        }
         MulticornConstQual *newqual = NULL;
         bool		isNull = true;
         ExprState  *expr_state = NULL;
