@@ -1022,7 +1022,7 @@ execute(ForeignScanState *node, ExplainState *es)
                     newqual->value = ExecEvalExpr(expr_state, econtext, &isNull, NULL);
                     #endif
                 }
-                newqual->base.typeoid = ((Param*) ((MulticornParamQual *) qual)->expr)->paramtype;
+                newqual->base.typeoid = ((MulticornBaseQual *) qual)->typeoid;
                 newqual->isnull = isNull;
                 break;
             case T_Const:
