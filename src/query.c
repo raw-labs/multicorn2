@@ -504,7 +504,20 @@ makeQual(AttrNumber varattno, char *opname, Expr *value, bool isarray,
             qual = palloc0(sizeof(MulticornParamQual));
             qual->right_type = T_Param;
             ((MulticornParamQual *) qual)->expr = value;
-            qual->typeoid = InvalidOid;
+            {
+                Oid expr_type_oid;
+                TupleDesc resultTupleDesc;
+                TypeFuncClass tFunc = get_expr_result_type((Node *)value, &expr_type_oid, &resultTupleDesc);
+                if (OidIsValid(expr_type_oid))
+                {
+                    qual->typeoid = expr_type_oid;
+                }
+                else
+                {
+                    // TODO
+                    assert(false);
+                }
+            }
             break;
     }
     qual->varattno = varattno;
