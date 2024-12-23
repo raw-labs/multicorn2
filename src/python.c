@@ -1805,6 +1805,7 @@ datumToPython(Datum datum, Oid type, ConversionInfo * cinfo)
             return datumDecimalToPython(datum, cinfo);
         case DATEOID:
             return datumDateToPython(datum, cinfo);
+        case TIMESTAMPTZOID:
         case TIMESTAMPOID:
             return datumTimestampToPython(datum, cinfo);
         case FLOAT4OID:
