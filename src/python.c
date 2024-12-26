@@ -1708,6 +1708,29 @@ datumTimestampToPython(Datum datum, ConversionInfo * cinfo)
     return result;
 }
 
+PyObject *
+datumTimestampTzToPython(Datum datum, ConversionInfo * cinfo)
+{
+    struct pg_tm *pg_tm_value = palloc(sizeof(struct pg_tm));
+    PyObject   *result;
+    fsec_t		fsec;
+    int tzp;
+    const char* tzn;
+    pg_tz atttimezone;
+
+    PyDateTime_IMPORT;
+    timestamp2tm(DatumGetTimestampTz(datum), &tzp, pg_tm_value, &fsec,
+                 &tzn, &atttimezone);
+    result = PyDateTime_FromDateAndTime(pg_tm_value->tm_year,
+                                        pg_tm_value->tm_mon,
+                                        pg_tm_value->tm_mday,
+                                        pg_tm_value->tm_hour,
+                                        pg_tm_value->tm_min,
+                                        pg_tm_value->tm_sec, 0);
+    pfree(pg_tm_value);
+    return result;
+}
+
 static PyObject *
 datumIntToPython(Datum datum, ConversionInfo * cinfo)
 {
