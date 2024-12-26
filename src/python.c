@@ -55,6 +55,7 @@ static PyObject   *datumFloat4ToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumFloat8ToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumDateToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumTimestampToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumTimestampTzToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumIntToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumArrayToPython(Datum datum, Oid type, ConversionInfo * cinfo);
 static PyObject   *datumByteaToPython(Datum datum, ConversionInfo * cinfo);
@@ -1703,7 +1704,31 @@ datumTimestampToPython(Datum datum, ConversionInfo * cinfo)
                                         pg_tm_value->tm_mday,
                                         pg_tm_value->tm_hour,
                                         pg_tm_value->tm_min,
-                                        pg_tm_value->tm_sec, 0);
+                                        pg_tm_value->tm_sec,
+                                        fsec);
+    pfree(pg_tm_value);
+    return result;
+}
+
+PyObject *
+datumTimestampTzToPython(Datum datum, ConversionInfo * cinfo)
+{
+    struct pg_tm *pg_tm_value = palloc(sizeof(struct pg_tm));
+    PyObject   *result;
+    fsec_t		fsec;
+    int tzp;
+    const char* tzn;
+
+    PyDateTime_IMPORT;
+    timestamp2tm(DatumGetTimestampTz(datum), &tzp, pg_tm_value, &fsec,
+                 &tzn, session_timezone);
+    result = PyDateTime_FromDateAndTime(pg_tm_value->tm_year,
+                                        pg_tm_value->tm_mon,
+                                        pg_tm_value->tm_mday,
+                                        pg_tm_value->tm_hour,
+                                        pg_tm_value->tm_min,
+                                        pg_tm_value->tm_sec,
+                                        fsec);
     pfree(pg_tm_value);
     return result;
 }
@@ -1805,6 +1830,8 @@ datumToPython(Datum datum, Oid type, ConversionInfo * cinfo)
             return datumDecimalToPython(datum, cinfo);
         case DATEOID:
             return datumDateToPython(datum, cinfo);
+        case TIMESTAMPTZOID:
+            return datumTimestampTzToPython(datum, cinfo);
         case TIMESTAMPOID:
             return datumTimestampToPython(datum, cinfo);
         case FLOAT4OID:
