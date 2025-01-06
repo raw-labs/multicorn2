@@ -640,34 +640,89 @@ bms_make_singleton(fscan->scan.scanrelid),
 static TupleTableSlot *
 multicornIterateForeignScan(ForeignScanState *node)
 {
-    TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-    MulticornExecState *execstate = node->fdw_state;
-    PyObject   *p_value;
+    TupleTableSlot     *slot       = node->ss.ss_ScanTupleSlot;
+    MulticornExecState *execstate  = node->fdw_state;
 
-    if (execstate->p_iterator == NULL)
+    PG_TRY();
     {
-        execute(node, NULL);
+        PyObject *p_value;
+
+        /* If we haven't started iteration yet, do so now. */
+        if (execstate->p_iterator == NULL)
+        {
+            execute(node, NULL);
+        }
+
+        ExecClearTuple(slot);
+
+        /* If the FDW's execute() returned Py_None instead of an iterator, stop now. */
+        if (execstate->p_iterator == Py_None)
+        {
+            Py_DECREF(execstate->p_iterator);
+            execstate->p_iterator = NULL;
+            return slot;  /* Return empty slot => no more rows */
+        }
+
+        /*
+         * Advance the Python iterator once. If p_value == NULL, either we're
+         * at end-of-iteration, or there's a Python error. Distinguish them
+         * via PyErr_Occurred().
+         */
+        p_value = PyIter_Next(execstate->p_iterator);
+
+        CHECK_FOR_INTERRUPTS();  /* Allows user-cancel to interrupt a slow iteration. */
+
+        if (p_value == NULL)
+        {
+            /* p_value == NULL can mean end-of-data OR a Python exception. */
+            if (PyErr_Occurred())
+            {
+                /*
+                 * Handle or propagate the Python exception.
+                 * errorCheck() typically calls ereport(ERROR,...) or similar.
+                 */
+                errorCheck();
+            }
+            /* If no error, that's just end of iteration. Return empty slot. */
+            return slot;
+        }
+        else if (p_value == Py_None)
+        {
+            /*
+             * Some Python iterators might yield None as a sentinel. Treat it
+             * the same as no row. Adjust logic if your FDW semantics differ.
+             */
+            Py_DECREF(p_value);
+            return slot;
+        }
+
+        /*
+         * p_value is a valid object to be turned into a row.
+         * Fill the slot using our existing conversion logic.
+         */
+        slot->tts_values = execstate->values;
+        slot->tts_isnull = execstate->nulls;
+
+        pythonResultToTuple(p_value, slot, execstate->cinfos, execstate->buffer);
+        ExecStoreVirtualTuple(slot);
+
+        Py_DECREF(p_value);
     }
-    ExecClearTuple(slot);
-    if (execstate->p_iterator == Py_None)
+    PG_CATCH();
     {
-        /* No iterator returned from get_iterator */
-        Py_DECREF(execstate->p_iterator);
-        return slot;
+        /*
+         * We caught an error (either from Python or from Postgres). 
+         * Clean up by telling the Python iterator we're done, if it has a close().
+         */
+        if (execstate->p_iterator != NULL)
+        {
+            PyObject_CallMethod(execstate->p_iterator, "close", "()");
+            /* We don't strictly handle errors in close() here, 
+               because we're already unwinding due to some error. */
+        }
+        PG_RE_THROW();
     }
-    p_value = PyIter_Next(execstate->p_iterator);
-    errorCheck();
-    /* A none value results in an empty slot. */
-    if (p_value == NULL || p_value == Py_None)
-    {
-        Py_XDECREF(p_value);
-        return slot;
-    }
-    slot->tts_values = execstate->values;
-    slot->tts_isnull = execstate->nulls;
-    pythonResultToTuple(p_value, slot, execstate->cinfos, execstate->buffer);
-    ExecStoreVirtualTuple(slot);
-    Py_DECREF(p_value);
+    PG_END_TRY();
 
     return slot;
 }
