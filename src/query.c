@@ -481,6 +481,9 @@ makeQual(AttrNumber varattno, char *opname, Expr *value, bool isarray,
          bool useOr)
 {
     MulticornBaseQual *qual;
+    Oid expr_type_oid;
+    TupleDesc resultTupleDesc;
+    TypeFuncClass tFunc;
 
     elog(DEBUG3, "begin makeQual() opname '%s': type '%d'", opname, value->type);
     switch (value->type)
@@ -501,10 +504,25 @@ makeQual(AttrNumber varattno, char *opname, Expr *value, bool isarray,
             break;
         default:
                     elog(DEBUG3, "default");
+            /* Extract and store the type OID. */
+            tFunc = get_expr_result_type((Node *)value, &expr_type_oid, &resultTupleDesc);
+            elog(DEBUG3, "get_expr_result_tupdesc returned TypeFuncClass %d", tFunc);
+            /*
+             * get_expr_result_type() may return an invalid OID if the expression resolves
+             * to a composite or record type. In such cases, resultTupleDesc will contain
+             * details (e.g., field definitions). However, for our purposes here, we only
+             * handle expressions that yield a valid OID.
+             */
+            if (!OidIsValid(expr_type_oid))
+            {
+                ereport(ERROR,
+                        (errcode(ERRCODE_UNDEFINED_OBJECT),
+                         errmsg("could not determine type of expression")));
+            }
             qual = palloc0(sizeof(MulticornParamQual));
+            qual->typeoid = expr_type_oid;
             qual->right_type = T_Param;
             ((MulticornParamQual *) qual)->expr = value;
-            qual->typeoid = InvalidOid;
             break;
     }
     qual->varattno = varattno;
