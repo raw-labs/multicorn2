@@ -5,7 +5,7 @@ create or replace function create_foreign_server() returns void as $block$
     current_db varchar;
   BEGIN
     SELECT into current_db current_database();
-    EXECUTE $$ 
+    EXECUTE $$
     CREATE server multicorn_srv foreign data wrapper multicorn options (
         wrapper 'multicorn.sqlalchemyfdw.SqlAlchemyFdw',
         db_url 'postgresql://$$ || current_user || '@localhost/' || current_db || $$'
@@ -14,9 +14,9 @@ create or replace function create_foreign_server() returns void as $block$
   END;
 $block$ language plpgsql;
 select create_foreign_server();
- create_foreign_server 
+ create_foreign_server
 -----------------------
- 
+
 (1 row)
 
 create foreign table testalchemy (
@@ -35,25 +35,25 @@ create table basetable (
   anumeric numeric,
   avarchar varchar
 );
-insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values 
+insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values
   (1, '1980-01-01', '1980-01-01  11:01:21.132912', 3.4, 'Test');
 NOTICE:  You need to declare a primary key option in order to use the write features
 ERROR:  This FDW does not support the writable API
 ALTER FOREIGN TABLE testalchemy OPTIONS (ADD primary_key 'id');
 BEGIN;
-insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values 
+insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values
   (1, '1980-01-01', '1980-01-01  11:01:21.132912', 3.4, 'Test'),
   (2, '1990-03-05', '1998-03-02  10:40:18.321023', 12.2, 'Another Test'),
   (3, '1972-01-02', '1972-01-02  16:12:54', 4000, 'another Test'),
   (4, '1922-11-02', '1962-01-02  23:12:54', -3000, NULL);
 select * from basetable;
- id | adate | atimestamp | anumeric | avarchar 
+ id | adate | atimestamp | anumeric | avarchar
 ----+-------+------------+----------+----------
 (0 rows)
 
 ROLLBACK;
 BEGIN;
-insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values 
+insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values
   (1, '1980-01-01', '1980-01-01  11:01:21.132912', 3.4, 'Test'),
   (2, '1990-03-05', '1998-03-02  10:40:18.321023', 12.2, 'Another Test'),
   (3, '1972-01-02', '1972-01-02  16:12:54', 4000, 'another Test'),
@@ -61,17 +61,17 @@ insert into testalchemy (id, adate, atimestamp, anumeric, avarchar) values
 update testalchemy set avarchar = avarchar || ' UPDATED!';
 COMMIT;
 SELECT * from basetable;
- id |   adate    |        atimestamp        | anumeric |       avarchar        
+ id |   adate    |        atimestamp        | anumeric |       avarchar
 ----+------------+--------------------------+----------+-----------------------
   1 | 01-01-1980 | Tue Jan 01 11:01:21 1980 |      3.4 | Test UPDATED!
   2 | 03-05-1990 | Mon Mar 02 10:40:18 1998 |     12.2 | Another Test UPDATED!
-  3 | 01-02-1972 | Sun Jan 02 16:12:54 1972 |   4000.0 | another Test UPDATED!
-  4 | 11-02-1922 | Tue Jan 02 23:12:54 1962 |  -3000.0 | 
+  3 | 01-02-1972 | Sun Jan 02 16:12:54 1972 |     4000 | another Test UPDATED!
+  4 | 11-02-1922 | Tue Jan 02 23:12:54 1962 |    -3000 |
 (4 rows)
 
 DELETE from testalchemy;
 SELECT * from basetable;
- id | adate | atimestamp | anumeric | avarchar 
+ id | adate | atimestamp | anumeric | avarchar
 ----+-------+------------+----------+----------
 (0 rows)
 
