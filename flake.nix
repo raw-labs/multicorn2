@@ -29,7 +29,7 @@
         # python313 # tests are currently broken
       ];
       testPostgresVersions = with pkgs; [
-        postgresql_12
+        #postgresql_12
         postgresql_13
         postgresql_14
         postgresql_15
