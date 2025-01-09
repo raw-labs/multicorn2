@@ -1,4 +1,4 @@
-name: Run multicorn2 Tests
+name: CI
 
 on:
   pull_request:
@@ -27,5 +27,4 @@ jobs:
       # truncate it to 0 bytes so it does nothing.
       - run: sudo find /home/runner/work/_temp -type d -name 'setup-nix-cache-action-*' -exec sh -c 'truncate -s 0 "$1"/post-build-hook' _ {} \;
 
-      # Run all the tests.
       - run: nix build .#allTestSuites
