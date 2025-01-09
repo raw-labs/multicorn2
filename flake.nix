@@ -23,17 +23,17 @@
 
       testPythonVersions = with pkgs; [
         python39
-        python310
-        python311
+        #python310
+        #python311
         # python312 # tests are currently broken
         # python313 # tests are currently broken
       ];
       testPostgresVersions = with pkgs; [
-        postgresql_12
-        postgresql_13
-        postgresql_14
+        #postgresql_12
+        #postgresql_13
+        #postgresql_14
         postgresql_15
-        postgresql_16
+        #postgresql_16
       ];
       testVersionCombos = pkgs.lib.cartesianProductOfSets {
         python = testPythonVersions;

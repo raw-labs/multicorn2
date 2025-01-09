@@ -10,3 +10,5 @@ results/
 regression.*
 .direnv
 result
+tmp_check/
+.vscode/
