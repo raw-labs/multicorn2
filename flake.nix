@@ -29,9 +29,9 @@
         # python313 # tests are currently broken
       ];
       testPostgresVersions = with pkgs; [
-        #postgresql_12
-        #postgresql_13
-        #postgresql_14
+        postgresql_12
+        postgresql_13
+        postgresql_14
         postgresql_15
         postgresql_16
       ];
@@ -155,7 +155,7 @@
           python -c "import sqlalchemy;import psycopg2"
 
           set +e
-          make easycheck REGRESS_OPTS="--keep-going"
+          make easycheck
           RESULT=$?
           set -e
           if [[ $RESULT -ne 0 ]]; then
