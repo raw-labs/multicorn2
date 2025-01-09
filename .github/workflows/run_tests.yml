@@ -28,28 +28,4 @@ jobs:
       - run: sudo find /home/runner/work/_temp -type d -name 'setup-nix-cache-action-*' -exec sh -c 'truncate -s 0 "$1"/post-build-hook' _ {} \;
 
       - run: nix build .#allTestSuites
-      # (No exit on test failure, so logs are always copied into ./result)
-
-      - name: Upload test logs
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: pg_regress-logs
-          path: ./result/test_output
-
-      # Now, parse result_code so the job fails if tests failed
-      - name: Fail if tests failed
-        if: always()  # ensure we do this even if the build otherwise "succeeded"
-        run: |
-          if [ -f ./result/test_output/.result_code ]; then
-            rc=$(cat ./result/test_output/.result_code)
-            echo "Test exit code was: $rc"
-            if [ "$rc" -ne 0 ]; then
-              echo "The tests had failures."
-              exit 1
-            fi
-          else
-            echo "No .result_code found, something's off!"
-            exit 1
-          fi
 

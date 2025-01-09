@@ -29,9 +29,9 @@
         # python313 # tests are currently broken
       ];
       testPostgresVersions = with pkgs; [
-        #postgresql_12
-        #postgresql_13
-        #postgresql_14
+        postgresql_12
+        postgresql_13
+        postgresql_14
         postgresql_15
         postgresql_16
       ];
@@ -154,45 +154,19 @@
 
           python -c "import sqlalchemy;import psycopg2"
 
-          mkdir -p ./test_output
-          export REGRESS_OPTS="$REGRESS_OPTS --verbose --outputdir=./test_output"
-
           set +e
           make easycheck
           RESULT=$?
-          # copy regression files even if tests fail
-          if [ -f /build/regression.diffs ]; then
-            cp /build/regression.diffs ./test_output/
-          fi
-          if [ -f /build/regression.out ]; then
-            cp /build/regression.out ./test_output/
-          fi
-          echo $RESULT > .result_code
           set -e
-
           if [[ $RESULT -ne 0 ]]; then
             echo "easycheck failed"
-            # (Removed) exit $RESULT
+            cat /build/regression.diffs
+            exit $RESULT
           fi
 
           runHook postCheck
         '';
-        installPhase = ''
-          mkdir -p $out/test_output
-          cp -r ./test_output/* $out/test_output/ 2>/dev/null || true
-
-          touch $out
-
-          # DO NOT exit if tests failed; so the derivation can succeed and produce a result symlink
-          if [ -f .result_code ]; then
-            rc=$(cat .result_code)
-            if [ "$rc" -ne 0 ]; then
-              echo "Tests failed with exit code $rc"
-              # COMMENTED OUT: exit $rc
-              # exit $rc
-            fi
-          fi
-        '';
+        installPhase = "touch $out";
       };
 
     in {
