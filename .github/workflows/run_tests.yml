@@ -28,4 +28,3 @@ jobs:
       - run: sudo find /home/runner/work/_temp -type d -name 'setup-nix-cache-action-*' -exec sh -c 'truncate -s 0 "$1"/post-build-hook' _ {} \;
 
       - run: nix build .#allTestSuites
-
