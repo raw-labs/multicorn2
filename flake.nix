@@ -160,34 +160,21 @@
           set +e
           make easycheck
           RESULT=$?
-
-          echo "=== pg_regress logs ==="
-          for f in ./test_output/regress_log_*.out; do
-            echo "---- $f ----"
-            cat "$f"
-            echo
-          done
-
-          if [ -f ./test_output/regression.diffs ]; then
-            echo "=== regression.diffs ==="
-            cat ./test_output/regression.diffs
-          fi
-
-          # Also copy the standard Postgres regression outputs if present
-          if [ -f /build/regression.out ]; then
-            cp /build/regression.out ./test_output/
-          fi
+          # ADDED: copy regression files even if tests fail
           if [ -f /build/regression.diffs ]; then
             cp /build/regression.diffs ./test_output/
           fi
-
+          if [ -f /build/regression.out ]; then
+            cp /build/regression.out ./test_output/
+          fi
+          # ADDED: store the exit code in a file, instead of exiting now
+          echo $RESULT > .result_code
           set -e
+
           if [[ $RESULT -ne 0 ]]; then
             echo "easycheck failed"
+            # REMOVED: exit $RESULT
           fi
-
-          # Store the exit code so we can fail in installPhase (after copying logs).
-          echo $RESULT > .result_code
 
           runHook postCheck
         '';
@@ -195,16 +182,16 @@
           mkdir -p $out/test_output
           cp -r ./test_output/* $out/test_output/ 2>/dev/null || true
 
-          # If tests failed, fail now after logs are copied
+          touch $out
+
+          # ADDED: fail here if tests actually failed
           if [ -f .result_code ]; then
-            read stored_result < .result_code
-            if [ "$stored_result" -ne 0 ]; then
-              echo "Tests failed with exit code $stored_result"
-              exit $stored_result
+            rc=$(cat .result_code)
+            if [ "$rc" -ne 0 ]; then
+              echo "Tests failed with exit code $rc"
+              exit $rc
             fi
           fi
-
-          touch $out
         '';
       };
 
