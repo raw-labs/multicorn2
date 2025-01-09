@@ -79,7 +79,7 @@ class TestForeignDataWrapper(ForeignDataWrapper):
                                                           index)
             yield line
 
-    def execute(self, quals, columns, sortkeys=None):
+    def execute(self, quals, columns, sortkeys=None, planid=None, limit=None):
         sortkeys = sortkeys or []
         log_to_postgres(str(sorted(quals)))
         log_to_postgres(str(sorted(columns)))
