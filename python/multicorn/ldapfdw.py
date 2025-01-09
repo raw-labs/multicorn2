@@ -134,7 +134,7 @@ class LdapFdw(ForeignDataWrapper):
             col.column_name for name, col in self.field_definitions.items()
             if col.type_name.endswith('[]')]
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         request = unicode_("(objectClass=%s)") % self.object_class
         for qual in quals:
             if isinstance(qual.operator, tuple):

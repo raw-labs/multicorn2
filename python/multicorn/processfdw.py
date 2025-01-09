@@ -90,7 +90,7 @@ class ProcessFdw(ForeignDataWrapper):
                 return datetime.fromtimestamp(value)
         return value
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         for process in psutil.process_iter():
             yield dict([(key, self._convert(key, value))
                    for key, value in process.as_dict(columns).items()])

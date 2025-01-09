@@ -167,7 +167,7 @@ class RssFdw(ForeignDataWrapper):
                     item[prop] = getattr(value[0], 'text', value[0])
         return item
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         """Quals are ignored."""
         if self.cache_duration is not None:
             date, values = self.cache

@@ -30,7 +30,7 @@ class ReStructuredTextFdw(FilesystemFdw):
                        if not name.startswith('rest_'))
         super(ReStructuredTextFdw, self).__init__(options, columns)
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         items = self.get_items(quals, columns)
         keys = [(name, name[5:])  # len('rest_') == 5
                 for name in columns if name.startswith('rest_')]

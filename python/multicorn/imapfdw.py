@@ -271,7 +271,7 @@ class ImapFdw(ForeignDataWrapper):
         conditions = [x for x in conditions if x not in (None, '()')]
         return conditions
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         # The header dictionary maps columns to their imap search string
         col_to_imap = {}
         headers = []
