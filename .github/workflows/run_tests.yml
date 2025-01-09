@@ -29,3 +29,10 @@ jobs:
 
       # Run all the tests.
       - run: nix build .#allTestSuites
+
+      # Upload logs from ./result/test_output as a build artifact
+      - name: Upload test logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: pg_regress-logs
+          path: ./result/test_output

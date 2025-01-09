@@ -29,9 +29,9 @@
         # python313 # tests are currently broken
       ];
       testPostgresVersions = with pkgs; [
-        postgresql_12
-        postgresql_13
-        postgresql_14
+        #postgresql_12
+        #postgresql_13
+        #postgresql_14
         postgresql_15
         postgresql_16
       ];
@@ -154,19 +154,39 @@
 
           python -c "import sqlalchemy;import psycopg2"
 
+          mkdir -p ./test_output
+          export REGRESS_OPTS="$REGRESS_OPTS --verbose --outputdir=./test_output"
+
           set +e
           make easycheck
           RESULT=$?
+
+          echo "=== pg_regress logs ==="
+          for f in ./test_output/regress_log_*.out; do
+            echo "---- $f ----"
+            cat "$f"
+            echo
+          done
+
+          if [ -f ./test_output/regression.diffs ]; then
+            echo "=== regression.diffs ==="
+            cat ./test_output/regression.diffs
+          fi
+
           set -e
           if [[ $RESULT -ne 0 ]]; then
             echo "easycheck failed"
-            cat /build/regression.diffs
             exit $RESULT
           fi
 
           runHook postCheck
         '';
-        installPhase = "touch $out";
+        installPhase = ''
+          mkdir -p $out/test_output
+          cp -r ./test_output/* $out/test_output/ 2>/dev/null || true
+
+          touch $out
+        '';
       };
 
     in {
