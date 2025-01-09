@@ -1,5 +1,6 @@
 -- Setup the test
 CREATE EXTENSION multicorn;
+INFO:  Setting HSTORE array OID to 16430
 CREATE EXTENSION plpython3u;
 \i test-common/disable_jit.include
 DO $$

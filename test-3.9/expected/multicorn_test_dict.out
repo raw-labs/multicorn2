@@ -1,5 +1,6 @@
 SET client_min_messages=NOTICE;
 CREATE EXTENSION multicorn;
+INFO:  Setting HSTORE array OID to 16430
 CREATE EXTENSION hstore;
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'
