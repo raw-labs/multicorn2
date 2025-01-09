@@ -161,7 +161,7 @@
           if [[ $RESULT -ne 0 ]]; then
             echo "easycheck failed"
             cat /build/regression.diffs
-            # REMOVED: exit $RESULT
+            exit $RESULT
           fi
 
           runHook postCheck
