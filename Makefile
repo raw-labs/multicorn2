@@ -142,13 +142,12 @@ endif
 
 REGRESS      = $(patsubst test-$(PYTHON_TEST_VERSION)/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test-$(PYTHON_TEST_VERSION) --encoding=UTF8 --host=localhost
-
-PG_REGRESS_DIFF_OPTS = \
-    -I 'WARNING:  columns_dict = 0x' \
-    -I 'INFO:  Setting HSTORE array OID to'
+REGRESS_OPTS += --diff_opts="-I '^WARNING:  columns_dict = 0x' -I '^INFO:  Setting HSTORE array OID to'"
 
 $(info Python version is $(python_version))
 $(info PG_REGRESS_DIFF_OPTS is '$(PG_REGRESS_DIFF_OPTS)')
+$(info pg_regress_check is '$(pg_regress_check)')
+$(info REGRESS_OPTS is '$(REGRESS_OPTS)')
 
 # This is a copy of the "check" target from pgxs.mk, but it doesn't build the extension, just runs the tests.
 easycheck:
