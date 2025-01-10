@@ -1,5 +1,6 @@
 SET client_min_messages=ERROR;
 CREATE EXTENSION multicorn CASCADE;
+INFO:  Setting HSTORE array OID to 16391
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'
 );
@@ -18,7 +19,7 @@ select * from testmulticorn limit 1;
 
 ALTER foreign table testmulticorn alter test1 options (set prefix 'test2');
 select * from testmulticorn limit 1;
-   test1   |   test2   
+  test1   |   test2   
 -----------+-----------
  test1 1 0 | test2 2 0
 (1 row)
