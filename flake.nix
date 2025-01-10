@@ -156,7 +156,7 @@
           python -c "import sqlalchemy;import psycopg2"
 
           set +e
-          make easycheck
+          make easycheck V=1
           RESULT=$?
           set -e
           if [[ $RESULT -ne 0 ]]; then

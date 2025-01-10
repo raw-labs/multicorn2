@@ -148,6 +148,7 @@ PG_REGRESS_DIFF_OPTS = \
     -I 'INFO:  Setting HSTORE array OID to'
 
 $(info Python version is $(python_version))
+$(info PG_REGRESS_DIFF_OPTS is '$(PG_REGRESS_DIFF_OPTS)')
 
 # This is a copy of the "check" target from pgxs.mk, but it doesn't build the extension, just runs the tests.
 easycheck:
