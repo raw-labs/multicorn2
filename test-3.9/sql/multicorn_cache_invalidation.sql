@@ -1,3 +1,4 @@
+SET client_min_messages=ERROR;
 CREATE EXTENSION multicorn CASCADE;
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'

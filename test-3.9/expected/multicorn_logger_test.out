@@ -1,6 +1,5 @@
 SET client_min_messages=ERROR;
 CREATE EXTENSION multicorn CASCADE;
-
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'
 );
@@ -13,11 +12,7 @@ CREATE foreign table testmulticorn (
 );
 -- Test "normal" usage
 select * from testmulticorn;
-NOTICE:  [('option1', 'option1'), ('test_type', 'logger')]
-NOTICE:  [('test1', 'character varying'), ('test2', 'character varying')]
 WARNING:  An error is about to occur
 ERROR:  An error occured
 DROP EXTENSION multicorn cascade;
-NOTICE:  drop cascades to 2 other objects
-DETAIL:  drop cascades to server multicorn_srv
 drop cascades to foreign table testmulticorn

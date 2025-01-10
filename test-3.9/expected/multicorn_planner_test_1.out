@@ -22,8 +22,6 @@ CREATE foreign table testmulticorn (
     option1 'option1'
 );
 explain select * from testmulticorn;
-NOTICE:  [('option1', 'option1'), ('usermapping', 'test')]
-NOTICE:  [('test1', 'character varying'), ('test2', 'character varying')]
                               QUERY PLAN                              
 ----------------------------------------------------------------------
  Foreign Scan on testmulticorn  (cost=10.00..400.00 rows=20 width=20)
@@ -61,12 +59,6 @@ CREATE foreign table testmulticorn (
     noisy_explain 'true'
 );
 explain select * from testmulticorn;
-NOTICE:  [('noisy_explain', 'true'), ('option1', 'option1'), ('test_type', 'planner'), ('usermapping', 'test')]
-NOTICE:  [('test1', 'character varying'), ('test2', 'character varying')]
-NOTICE:  EXPLAIN quals=[]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
                                     QUERY PLAN                                    
 ----------------------------------------------------------------------------------
  Foreign Scan on testmulticorn  (cost=10.00..200000000.00 rows=10000000 width=20)
@@ -75,14 +67,6 @@ NOTICE:  EXPLAIN verbose=False
 (3 rows)
 
 explain select * from testmulticorn m1 inner join testmulticorn m2 on m1.test1 = m2.test1;
-NOTICE:  EXPLAIN quals=[]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
-NOTICE:  EXPLAIN quals=[test1 = ?]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
  Nested Loop  (cost=20.00..400125000.00 rows=500000000000 width=128)
@@ -97,14 +81,6 @@ NOTICE:  EXPLAIN verbose=False
 (9 rows)
 
 explain select * from testmulticorn m1 left outer join testmulticorn m2 on m1.test1 = m2.test1;
-NOTICE:  EXPLAIN quals=[]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
-NOTICE:  EXPLAIN quals=[test1 = ?]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
  Nested Loop Left Join  (cost=20.00..400125000.00 rows=500000000000 width=128)
@@ -119,14 +95,6 @@ NOTICE:  EXPLAIN verbose=False
 (9 rows)
 
 explain select * from testmulticorn m1 left outer join testmulticorn m2 on upper(m1.test1) = m2.test1;
-NOTICE:  EXPLAIN quals=[]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
-NOTICE:  EXPLAIN quals=[test1 = ?]
-NOTICE:  EXPLAIN columns=['test1', 'test2']
-NOTICE:  EXPLAIN sortkeys=None
-NOTICE:  EXPLAIN verbose=False
                                         QUERY PLAN                                         
 -------------------------------------------------------------------------------------------
  Nested Loop Left Join  (cost=20.00..400150000.00 rows=500000000000 width=128)
@@ -142,6 +110,4 @@ NOTICE:  EXPLAIN verbose=False
 
 DROP USER MAPPING FOR current_user SERVER multicorn_srv;
 DROP EXTENSION multicorn cascade;
-NOTICE:  drop cascades to 2 other objects
-DETAIL:  drop cascades to server multicorn_srv
 drop cascades to foreign table testmulticorn

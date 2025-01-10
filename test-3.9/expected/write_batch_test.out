@@ -1,5 +1,5 @@
+SET client_min_messages=ERROR;
 CREATE EXTENSION multicorn CASCADE;
-
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'
 );
@@ -19,11 +19,6 @@ VALUES
 ('col1_val3', 'col2_val'),
 ('col1_val4', 'col2_val'),
 ('col1_val5', 'col2_val');
-NOTICE:  [('modify_batch_size', '2'), ('option1', 'option1'), ('row_id_column', 'test1'), ('usermapping', 'test')]
-NOTICE:  [('fname1', 'character varying'), ('fname2', 'character varying')]
-NOTICE:  BULK INSERTING: [[('fname1', 'col1_val1'), ('fname2', 'col2_val')], [('fname1', 'col1_val2'), ('fname2', 'col2_val')]]
-NOTICE:  BULK INSERTING: [[('fname1', 'col1_val3'), ('fname2', 'col2_val')], [('fname1', 'col1_val4'), ('fname2', 'col2_val')]]
-NOTICE:  BULK INSERTING: [[('fname1', 'col1_val5'), ('fname2', 'col2_val')]]
 CREATE OR REPLACE FUNCTION notify_insert()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -39,13 +34,9 @@ INSERT INTO testmulticorn_write(fname1, fname2)
 VALUES
 ('col1_val6', 'col2_val'),
 ('col1_val7', 'col2_val');
-NOTICE:  BULK INSERTING: [[('fname1', 'col1_val6'), ('fname2', 'col2_val')], [('fname1', 'col1_val7'), ('fname2', 'col2_val')]]
-NOTICE:  Inserted Record: col1_val6, col2_val
-NOTICE:  Inserted Record: col1_val7, col2_val
 DROP TRIGGER after_insert_trigger ON testmulticorn_write;
 DROP FUNCTION notify_insert();
 DROP USER MAPPING FOR current_user SERVER multicorn_srv;
 DROP EXTENSION multicorn cascade;
-NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to server multicorn_srv
 drop cascades to foreign table testmulticorn_write

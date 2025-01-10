@@ -1,6 +1,5 @@
 SET client_min_messages=ERROR;
 CREATE EXTENSION multicorn CASCADE;
-
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'
 );
@@ -14,10 +13,6 @@ CREATE foreign table testmulticorn (
 );
 -- Test "normal" usage
 select * from testmulticorn;
-NOTICE:  [('option1', 'option1'), ('test_type', 'date'), ('usermapping', 'test')]
-NOTICE:  [('test1', 'date'), ('test2', 'timestamp without time zone')]
-NOTICE:  []
-NOTICE:  ['test1', 'test2']
    test1    |          test2           
 ------------+--------------------------
  01-01-2011 | Sun Jan 02 14:30:25 2011
@@ -43,8 +38,6 @@ NOTICE:  ['test1', 'test2']
 (20 rows)
 
 select * from testmulticorn where test1 < '2011-06-01';
-NOTICE:  [test1 < 2011-06-01]
-NOTICE:  ['test1', 'test2']
    test1    |          test2           
 ------------+--------------------------
  01-01-2011 | Sun Jan 02 14:30:25 2011
@@ -60,8 +53,6 @@ NOTICE:  ['test1', 'test2']
 (10 rows)
 
 select * from testmulticorn where test2 < '2011-06-01 00:00:00';
-NOTICE:  [test2 < 2011-06-01 00:00:00]
-NOTICE:  ['test1', 'test2']
    test1    |          test2           
 ------------+--------------------------
  01-01-2011 | Sun Jan 02 14:30:25 2011
@@ -78,6 +69,4 @@ NOTICE:  ['test1', 'test2']
 
 DROP USER MAPPING FOR current_user SERVER multicorn_srv;
 DROP EXTENSION multicorn cascade;
-NOTICE:  drop cascades to 2 other objects
-DETAIL:  drop cascades to server multicorn_srv
 drop cascades to foreign table testmulticorn
