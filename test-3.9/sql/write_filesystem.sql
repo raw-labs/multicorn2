@@ -1,6 +1,5 @@
 -- Setup the test
-SET client_min_messages=ERROR;
-CREATE EXTENSION multicorn CASCADE;
+CREATE EXTENSION multicorn;
 CREATE EXTENSION plpython3u;
 \i test-common/disable_jit.include
 

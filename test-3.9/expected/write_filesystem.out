@@ -1,6 +1,5 @@
 -- Setup the test
-SET client_min_messages=ERROR;
-CREATE EXTENSION multicorn CASCADE;
+CREATE EXTENSION multicorn;
 CREATE EXTENSION plpython3u;
 \i test-common/disable_jit.include
 DO $$
@@ -604,5 +603,7 @@ DROP FUNCTION cleanup_dir();
 DROP TABLE temp_dir;
 DROP FUNCTION create_table();
 DROP EXTENSION multicorn cascade;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to server multicorn_srv
 drop cascades to foreign table testmulticorn
 DROP EXTENSION plpython3u;

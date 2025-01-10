@@ -1,5 +1,5 @@
-SET client_min_messages=ERROR;
-CREATE EXTENSION multicorn CASCADE;
+SET client_min_messages=NOTICE;
+CREATE EXTENSION multicorn;
 CREATE EXTENSION hstore;
 CREATE server multicorn_srv foreign data wrapper multicorn options (
     wrapper 'multicorn.testfdw.TestForeignDataWrapper'
@@ -14,6 +14,10 @@ CREATE foreign table testmulticorn (
 );
 -- Test "normal" usage
 select * from testmulticorn;
+NOTICE:  [('option1', 'option1'), ('test_type', 'dict'), ('usermapping', 'test')]
+NOTICE:  [('test1', 'hstore'), ('test2', 'hstore')]
+NOTICE:  []
+NOTICE:  ['test1', 'test2']
                                       test1                                       |                                      test2                                       
 ----------------------------------------------------------------------------------+----------------------------------------------------------------------------------
  "index"=>"0", "repeater"=>"1", "column_name"=>"test1", "maybe_hstore"=>"a => b"  | "index"=>"0", "repeater"=>"2", "column_name"=>"test2", "maybe_hstore"=>"a => b"
@@ -39,6 +43,8 @@ select * from testmulticorn;
 (20 rows)
 
 select test1 -> 'repeater' as r from testmulticorn order by r;
+NOTICE:  []
+NOTICE:  ['test1']
  r 
 ---
  1
@@ -65,4 +71,6 @@ select test1 -> 'repeater' as r from testmulticorn order by r;
 
 DROP USER MAPPING FOR current_user SERVER multicorn_srv;
 DROP EXTENSION multicorn cascade;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to server multicorn_srv
 drop cascades to foreign table testmulticorn

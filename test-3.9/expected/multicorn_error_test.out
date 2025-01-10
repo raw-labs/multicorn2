@@ -1,6 +1,5 @@
-SET client_min_messages=ERROR;
-CREATE EXTENSION multicorn CASCADE;
-INFO:  Setting HSTORE array OID to 16391
+SET client_min_messages=NOTICE;
+CREATE EXTENSION multicorn;
 -- Test that the wrapper option is required on the server.
 CREATE server multicorn_srv foreign data wrapper multicorn;
 ERROR:  The wrapper parameter is mandatory, specify a valid class name
@@ -22,3 +21,4 @@ ERROR:  The wrapper parameter is mandatory, specify a valid class name
 CREATE server multicorn_empty_srv foreign data wrapper multicorn;
 ERROR:  The wrapper parameter is mandatory, specify a valid class name
 DROP EXTENSION multicorn cascade;
+NOTICE:  drop cascades to server multicorn_srv
