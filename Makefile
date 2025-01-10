@@ -141,11 +141,9 @@ ifeq ($(shell test $(PG_TEST_VERSION) -ge 14; echo $$?),0)
 endif
 
 REGRESS      = $(patsubst test-$(PYTHON_TEST_VERSION)/sql/%.sql,%,$(TESTS))
-REGRESS_OPTS = --inputdir=test-$(PYTHON_TEST_VERSION) --encoding=UTF8 --host=localhost
-REGRESS_OPTS += --diff_opts="-I '^WARNING:  columns_dict = 0x' -I '^INFO:  Setting HSTORE array OID to'"
+REGRESS_OPTS = --inputdir=test-$(PYTHON_TEST_VERSION) --encoding=UTF8 --host=localhost --outputdir=tmp_check --keepfiles
 
 $(info Python version is $(python_version))
-$(info PG_REGRESS_DIFF_OPTS is '$(PG_REGRESS_DIFF_OPTS)')
 $(info pg_regress_check is '$(pg_regress_check)')
 $(info REGRESS_OPTS is '$(REGRESS_OPTS)')
 
@@ -155,7 +153,7 @@ $(info REGRESS_OPTS is '$(REGRESS_OPTS)')
 
 easycheck:
 	set +e
-	$(pg_regress) $(REGRESS_OPTS) --outputdir=tmp_check --keepfiles $(REGRESS)
+	$(pg_regress) $(REGRESS_OPTS) $(REGRESS)
 	PGREGRESS_STATUS=$$?
 	set -e
 
