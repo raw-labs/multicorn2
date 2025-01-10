@@ -150,5 +150,33 @@ $(info pg_regress_check is '$(pg_regress_check)')
 $(info REGRESS_OPTS is '$(REGRESS_OPTS)')
 
 # This is a copy of the "check" target from pgxs.mk, but it doesn't build the extension, just runs the tests.
+#easycheck:
+#		$(pg_regress_check) $(REGRESS_OPTS) $(REGRESS)
+
 easycheck:
-		$(pg_regress_check) $(REGRESS_OPTS) $(REGRESS)
+	set +e
+	$(pg_regress) $(REGRESS_OPTS) --outputdir=tmp_check --keepfiles $(REGRESS)
+	PGREGRESS_STATUS=$$?
+	set -e
+
+	# If pg_regress > 1, that's a fatal error (e.g. server startup failed).
+	# We fail immediately in that case, ignoring diffs.
+	if [ $$PGREGRESS_STATUS -gt 1 ]; then \
+		echo "pg_regress returned a fatal error code ($$PGREGRESS_STATUS). Failing."; \
+		exit $$PGREGRESS_STATUS; \
+	fi
+
+	sed -i '/^WARNING:  columns_dict = 0x.*$$/d' tmp_check/*.out
+	sed -i '/^INFO:  Setting HSTORE array OID to .*$$/d' tmp_check/*.out
+
+	diff -r test-$(PYTHON_TEST_VERSION)/expected tmp_check > /build/regression.diffs || true
+
+	# If diff is empty => pass (0). If not empty => fail (1).
+	if [ -s /build/regression.diffs ]; then \
+		echo "=== Tests FAILED after ignoring known lines ==="; \
+		cat /build/regression.diffs; \
+		exit 1; \
+	else \
+		echo "=== Tests PASSED after ignoring known lines ==="; \
+		exit 0; \
+	fi
