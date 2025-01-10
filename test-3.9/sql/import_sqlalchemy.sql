@@ -1,4 +1,4 @@
-SET client_min_messages=NOTICE;
+SET client_min_messages=ERROR;
 CREATE EXTENSION multicorn CASCADE;
 create or replace function create_foreign_server() returns void as $block$
   DECLARE

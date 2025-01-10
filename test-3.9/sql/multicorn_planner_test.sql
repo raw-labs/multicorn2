@@ -1,4 +1,4 @@
-SET client_min_messages=NOTICE;
+SET client_min_messages=ERROR;
 \i test-common/disable_jit.include
 CREATE EXTENSION multicorn CASCADE;
 CREATE server multicorn_srv foreign data wrapper multicorn options (
