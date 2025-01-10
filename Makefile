@@ -141,7 +141,7 @@ ifeq ($(shell test $(PG_TEST_VERSION) -ge 14; echo $$?),0)
 endif
 
 REGRESS      = $(patsubst test-$(PYTHON_TEST_VERSION)/sql/%.sql,%,$(TESTS))
-REGRESS_OPTS = --inputdir=test-$(PYTHON_TEST_VERSION) --encoding=UTF8 --host=localhost --outputdir=tmp_check --keepfiles
+REGRESS_OPTS = --inputdir=test-$(PYTHON_TEST_VERSION) --encoding=UTF8 --host=localhost
 
 $(info Python version is $(python_version))
 $(info pg_regress_check is '$(pg_regress_check)')
@@ -153,15 +153,23 @@ $(info REGRESS_OPTS is '$(REGRESS_OPTS)')
 
 easycheck:
 	set +e
-	$(pg_regress) $(REGRESS_OPTS) $(REGRESS)
+	$(pg_regress) --temp-instance=./tmp_check \
+	              $(REGRESS_OPTS) \
+	              --outputdir=tmp_check --keepfiles \
+	              $(REGRESS)
 	PGREGRESS_STATUS=$$?
 	set -e
 
-	# If pg_regress > 1, that's a fatal error (e.g. server startup failed).
-	# We fail immediately in that case, ignoring diffs.
-	if [ $$PGREGRESS_STATUS -gt 1 ]; then \
-		echo "pg_regress returned a fatal error code ($$PGREGRESS_STATUS). Failing."; \
-		exit $$PGREGRESS_STATUS; \
+	case "$$PGREGRESS_STATUS" in
+	  ''|*[!0-9]*)
+	    echo "pg_regress returned a non-numeric or empty status (\"$$PGREGRESS_STATUS\"). Failing."
+	    exit 2
+	    ;;
+	esac
+	# If exit code > 1, it's usually a fatal problem (server not starting, etc.)
+	if [ "$$PGREGRESS_STATUS" -gt 1 ] 2>/dev/null; then
+	  echo "pg_regress returned a fatal error code ($$PGREGRESS_STATUS). Failing."
+	  exit $$PGREGRESS_STATUS
 	fi
 
 	sed -i '/^WARNING:  columns_dict = 0x.*$$/d' tmp_check/*.out
