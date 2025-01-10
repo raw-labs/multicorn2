@@ -129,6 +129,7 @@
           ./test-3.10
           ./test-3.11
           ./test-common
+          ./multicorn.control
         ];
         unpackPhase = ''
           for srcFile in $src; do

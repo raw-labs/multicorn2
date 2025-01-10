@@ -1,5 +1,5 @@
 -- Setup the test
-CREATE EXTENSION multicorn;
+CREATE EXTENSION multicorn CASCADE;
 CREATE EXTENSION plpython3u;
 \i test-common/disable_jit.include
 
