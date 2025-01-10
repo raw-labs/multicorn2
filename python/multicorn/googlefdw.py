@@ -34,7 +34,7 @@ class GoogleFdw(ForeignDataWrapper):
 
     """
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         if not quals:
             return ("No search specified",)
         for qual in quals:

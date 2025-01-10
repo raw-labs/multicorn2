@@ -358,7 +358,7 @@ class SqlAlchemyFdw(ForeignDataWrapper):
         return statement
 
 
-    def execute(self, quals, columns, sortkeys=None):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         """
         The quals are turned into an and'ed where clause.
         """

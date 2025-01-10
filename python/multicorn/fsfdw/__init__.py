@@ -216,7 +216,7 @@ class FilesystemFdw(TransactionAwareForeignDataWrapper):
             values.append((folders[:i], 100 ** (len(folders) - i)))
         return values
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         """Execute method.
 
         The FilesystemFdw performs some optimizations based on the filesystem

@@ -13,7 +13,7 @@ class MyClass(object):
 
 class GCForeignDataWrapper(ForeignDataWrapper):
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         gc.collect()
         result = []
         for obj in gc.get_objects():
@@ -45,7 +45,7 @@ class MemStressFDW(ForeignDataWrapper):
         self.columns = columns
         super(MemStressFDW, self).__init__(options, columns)
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         for i in range(self.nb):
             num = i / 100.
             yield {'value': str(MyClass(i, num)),

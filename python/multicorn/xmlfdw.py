@@ -64,7 +64,7 @@ class XMLFdw(ForeignDataWrapper):
         self.buffer_size = fdw_options.get('buffer_size', 4096)
         self.columns = fdw_columns
 
-    def execute(self, quals, columns):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None):
         parser = make_parser()
         handler = MulticornXMLHandler(self.elem_tag, self.columns)
         parser.setContentHandler(handler)
