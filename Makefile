@@ -143,6 +143,10 @@ endif
 REGRESS      = $(patsubst test-$(PYTHON_TEST_VERSION)/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test-$(PYTHON_TEST_VERSION) --encoding=UTF8 --host=localhost
 
+PG_REGRESS_DIFF_OPTS = \
+    -I '^WARNING:  columns_dict = 0x' \
+    -I '^INFO:  Setting HSTORE array OID to'
+
 $(info Python version is $(python_version))
 
 # This is a copy of the "check" target from pgxs.mk, but it doesn't build the extension, just runs the tests.
