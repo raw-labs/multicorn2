@@ -60,7 +60,7 @@ case "${cmd}" in
 		for x in results/*.out ; do
 			base=$(basename "$x")
 			echo ">>> $base"
-			diff -U2 test-${PY_VERSION}/expected/$base $x || /bin/true
+			diff -U3 test-${PY_VERSION}/expected/$base $x || /bin/true
 		done
 		exit 2
 	fi
