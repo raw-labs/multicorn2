@@ -663,21 +663,46 @@ multicornReScanForeignScan(ForeignScanState *node)
 }
 
 /*
- *	multicornEndForeignScan
- *		Finish scanning foreign table and dispose objects used for this scan.
+ *  multicornEndForeignScan
+ *      Finish scanning foreign table and dispose objects used for this scan.
  */
 static void
 multicornEndForeignScan(ForeignScanState *node)
 {
     MulticornExecState *state = node->fdw_state;
-    if (state->p_iterator != NULL && state->p_iterator != Py_None) {
-        PyObject_CallMethod(state->p_iterator, "close", "()");
-        // ignore errors
-    }
     PyObject   *result = PyObject_CallMethod(state->fdw_instance, "end_scan", "()");
     errorCheck();
     Py_DECREF(result);
     Py_DECREF(state->fdw_instance);
+
+    if (state->p_iterator != NULL && state->p_iterator != Py_None) {
+        // Check if p_iterator has a 'close' method. Sometimes we get a ListIterator (e.g. EXPLAIN).
+        if (PyObject_HasAttrString(state->p_iterator, "close")) {
+            // Retrieve the 'close' method
+            PyObject *close_method = PyObject_GetAttrString(state->p_iterator, "close");
+            if (close_method && PyCallable_Check(close_method)) {
+                // Call the 'close' method with no arguments
+                PyObject *close_result = PyObject_CallObject(close_method, NULL);
+                if (close_result == NULL) {
+                    // An error occurred while calling 'close'
+                    PyErr_Print(); // Optionally print the error
+                    errorCheck();   // Your existing error handling
+                } else {
+                    Py_DECREF(close_result); // Successfully called 'close'
+                }
+                Py_DECREF(close_method); // Decrement reference to 'close' method
+            } else {
+                // 'close' exists but is not callable or couldn't retrieve it
+                Py_XDECREF(close_method); // Safe to decref even if NULL
+                // Optionally, log a warning or handle accordingly
+                fprintf(stderr, "Warning: 'close' attribute exists but is not callable.\n");
+            }
+        } else {
+            // 'close' method does not exist; optionally handle this case
+            fprintf(stderr, "Warning: p_iterator does not have a 'close' method.\n");
+        }
+    }
+
     Py_XDECREF(state->p_iterator);
     state->p_iterator = NULL;
 }
