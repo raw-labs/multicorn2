@@ -751,6 +751,10 @@ static void
 multicornEndForeignScan(ForeignScanState *node)
 {
     MulticornExecState *state = node->fdw_state;
+    if (state->p_iterator != NULL && state->p_iterator != Py_None) {
+        PyObject_CallMethod(state->p_iterator, "close", "()");
+        // ignore errors
+    }
     PyObject   *result = PyObject_CallMethod(state->fdw_instance, "end_scan", "()");
 
     errorCheck();
