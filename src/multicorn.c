@@ -756,6 +756,35 @@ multicornEndForeignScan(ForeignScanState *node)
     errorCheck();
     Py_DECREF(result);
     Py_DECREF(state->fdw_instance);
+
+    if (state->p_iterator != NULL && state->p_iterator != Py_None) {
+        // Check if p_iterator has a 'close' method. Sometimes we get a ListIterator (e.g. EXPLAIN).
+        if (PyObject_HasAttrString(state->p_iterator, "close")) {
+            // Retrieve the 'close' method
+            PyObject *close_method = PyObject_GetAttrString(state->p_iterator, "close");
+            if (close_method && PyCallable_Check(close_method)) {
+                // Call the 'close' method with no arguments
+                PyObject *close_result = PyObject_CallObject(close_method, NULL);
+                if (close_result == NULL) {
+                    // An error occurred while calling 'close'
+                    PyErr_Print();
+                    // Ignore the error
+                } else {
+                    // Closed successfully
+                    Py_DECREF(close_result);
+                }
+                Py_DECREF(close_method);
+            } else {
+                // 'close' exists but is not callable or couldn't retrieve it
+                Py_XDECREF(close_method);
+                elog(WARNING, "Warning: 'close' attribute exists but is not callable.\n");
+            }
+        } else {
+            // 'close' method does not exist;
+            // We get that through EXPLAIN, UPDATE, DELETE. Iterator is backed by a list.
+        }
+    }
+
     Py_XDECREF(state->p_iterator);
     state->p_iterator = NULL;
 }
