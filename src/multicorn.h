@@ -70,6 +70,7 @@ typedef struct MulticornPlanState
     int			startupCost;
     ConversionInfo **cinfos;
     List	   *pathkeys; /* list of MulticornDeparsedSortGroup) */
+    int64		limit; /* store the LIMIT value, or -1 if no limit */
     uint64		plan_id; /* unique identifier for this plan */
 
     /* For some reason, `baserel->reltarget->width` gets changed
@@ -92,6 +93,7 @@ typedef struct MulticornExecState
     List	   *qual_list;
     Datum	   *values;
     bool	   *nulls;
+    int64       limit; /* store the LIMIT value, or -1 if no limit */
     uint64	   	plan_id; /* unique identifier for this plan */
     ConversionInfo **cinfos;
     /* Common buffer to avoid repeated allocations */
