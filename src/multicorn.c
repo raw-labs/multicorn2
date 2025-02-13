@@ -409,6 +409,7 @@ multicornGetForeignRelSize(PlannerInfo *root,
 
     }
 
+    /* If not all qualifiers are supported by Multicorn, then LIMIT cannot be pushed */
     if (list_length(planstate->qual_list) != list_length(baserel->baserestrictinfo)) {
         safeToPushLimit = false;
     }
