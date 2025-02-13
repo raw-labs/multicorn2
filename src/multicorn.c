@@ -283,10 +283,64 @@ multicornGetForeignRelSize(PlannerInfo *root,
     ListCell   *lc;
     bool		needWholeRow = false;
     TupleDesc	desc;
+    bool        safeToPushLimit = true;
+    Node       *limitNode = root->parse->limitCount;
+    Node       *offsetNode = root->parse->limitOffset;
+    bool        hasOffset = offsetNode != NULL;
 
     baserel->fdw_private = planstate;
     planstate->fdw_instance = getInstance(foreigntableid);
     planstate->foreigntableid = foreigntableid;
+
+    planstate->limit = -1;
+
+    /* Check for joins */
+    if (list_length(root->parse->jointree->fromlist) != 1)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for GROUP BY */
+    if (root->parse->groupClause)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for HAVING clause */
+    if (root->parse->havingQual)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for aggregates */
+    if (root->parse->hasAggs)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for window functions */
+    if (root->parse->hasWindowFuncs)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for ORDER BY */
+    if (root->parse->sortClause)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for DISTINCT */
+    if (root->parse->distinctClause)
+    {
+        safeToPushLimit = false;
+    }
+
+    /* Check for set operations (UNION, INTERSECT, EXCEPT) */
+    if (root->parse->setOperations)
+    {
+        safeToPushLimit = false;
+    }
 
     /* Set the unique plan identifier */
     planstate->plan_id = pg_atomic_fetch_add_u64(&global_query_counter, 1);
@@ -354,6 +408,40 @@ multicornGetForeignRelSize(PlannerInfo *root,
             &planstate->qual_list);
 
     }
+
+    /* If not all qualifiers are supported by Multicorn, then LIMIT cannot be pushed */
+    if (list_length(planstate->qual_list) != list_length(baserel->baserestrictinfo)) {
+        safeToPushLimit = false;
+    }
+
+    /* Only forward LIMIT if safe to do so */
+    if (safeToPushLimit)
+    {
+        /* See if we can forward LIMIT */
+        if (offsetNode && nodeTag(offsetNode) == T_Const) {
+            /* OFFSET is specified. We can't push LIMIT unless it is specified as 0 OR NULL */
+            Const* constNode = (Const*)offsetNode;
+            if (constNode->constisnull) {
+                /* Same as no OFFSET */
+                hasOffset = false;
+            } else {
+                int64 offsetValue = DatumGetInt64(constNode->constvalue);
+                /* Maybe it's OFFSET 0 */
+                hasOffset = offsetValue > 0;
+            }
+        }
+        /* Forward LIMIT _only_ if no OFFSET isn't in the query */
+        if (!hasOffset && limitNode && nodeTag(limitNode) == T_Const) {
+            Const* constNode = (Const*)limitNode;
+            if (constNode->constisnull) {
+                /* Same as LIMIT ALL = no LIMIT */
+            } else {
+                planstate->limit = DatumGetInt64(constNode->constvalue);
+            }
+        }
+    }
+
+
     /* Inject the "rows" and "width" attribute into the baserel */
     getRelSize(planstate, root, &baserel->rows, &baserel->reltarget->width);
     planstate->width = baserel->reltarget->width;
@@ -505,7 +593,7 @@ multicornExplainForeignScan(ForeignScanState *node, ExplainState *es)
     Py_INCREF(p_iterable);
     while((p_item = PyIter_Next(p_iterable))){
         p_str = PyObject_Str(p_item);
-        ExplainPropertyText("Multicorn", PyString_AsString(p_str), es);
+        ExplainPropertyText("DAS", PyString_AsString(p_str), es);
         Py_DECREF(p_str);
     }
     Py_DECREF(p_iterable);
@@ -1273,6 +1361,10 @@ multicornSerializePlanState(MulticornPlanState * state)
 
     result = lappend(result, serializeDeparsedSortGroup(state->pathkeys));
 
+    /* Serialize the new 'limit' attribute as an INT8 */
+    result = lappend(result, makeConst(INT8OID,
+                    -1, InvalidOid, 8, Int64GetDatum(state->limit), false, true));
+
     /* Serialize the 'plan_id' attribute as INT8 */
     result = lappend(result, makeConst(INT8OID,
                     -1, InvalidOid, 8, Int64GetDatum(state->plan_id), false, true));
@@ -1304,8 +1396,11 @@ multicornInitializeExecState(void *internalstate)
     execstate->values = palloc(attnum * sizeof(Datum));
     execstate->nulls = palloc(attnum * sizeof(bool));
 
+    /* Deserialize the 'limit' value */
+    execstate->limit = DatumGetInt64(((Const *) list_nth(values, 4))->constvalue);
+
     /* Deserialize the 'plan_id' value */
-    Datum plan_id_datum = ((Const *) list_nth(values, 4))->constvalue;
+    Datum plan_id_datum = ((Const *) list_nth(values, 5))->constvalue;
     execstate->plan_id = DatumGetInt64(plan_id_datum);
 
     return execstate;

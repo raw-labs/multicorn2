@@ -1058,6 +1058,11 @@ execute(ForeignScanState *node, ExplainState *es)
         if(PyList_Size(p_pathkeys) > 0){
             PyDict_SetItemString(kwargs, "sortkeys", p_pathkeys);
         }
+        /* Set the limit optional argument if there is a LIMIT clause. */
+        if(state->limit != -1) {
+            PyDict_SetItemString(kwargs, "limit", PyLong_FromLongLong(state->limit));
+        }
+
         if(es != NULL){
             PyObject * verbose;
             if(es->verbose){
