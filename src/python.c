@@ -1342,36 +1342,62 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
         // It's a dictionary. All its values are integers.
         PyObject *years = PyDict_GetItemString(pyobject, "years");
         PyObject *months = PyDict_GetItemString(pyobject, "months");
-        PyObject *weeks = PyDict_GetItemString(pyobject, "weeks");
         PyObject *days = PyDict_GetItemString(pyobject, "days");
         PyObject *hours = PyDict_GetItemString(pyobject, "hours");
         PyObject *minutes = PyDict_GetItemString(pyobject, "minutes");
         PyObject *seconds = PyDict_GetItemString(pyobject, "seconds");
-        PyObject *millis = PyDict_GetItemString(pyobject, "millis");
+        PyObject *micros = PyDict_GetItemString(pyobject, "micros");
         appendBinaryStringInfo(buffer, "P", 1);
         pynumberToCString(years, buffer, cinfo);
         appendBinaryStringInfo(buffer, "Y", 1);
         pynumberToCString(months, buffer, cinfo);
         appendBinaryStringInfo(buffer, "M", 1);
-        pynumberToCString(weeks, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "W", 1);
         pynumberToCString(days, buffer, cinfo);
         appendBinaryStringInfo(buffer, "DT", 2); // D + T to separate time
         pynumberToCString(hours, buffer, cinfo);
         appendBinaryStringInfo(buffer, "H", 1);
         pynumberToCString(minutes, buffer, cinfo);
         appendBinaryStringInfo(buffer, "M", 1);
-        pynumberToCString(seconds, buffer, cinfo);
-        pynumberToCString(millis, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "S", 1);
+
+        // Combine seconds and micros into a single value
+        if (seconds || micros) {
+            char seconds_str[64] = {0};
+            double total_seconds = 0.0;
+
+            // Convert seconds and micros to numeric values
+            if (seconds) {
+                total_seconds += PyFloat_AsDouble(seconds);
+            }
+            if (micros) {
+                total_seconds += PyFloat_AsDouble(micros) / 1e6;
+            }
+
+            // Format the combined seconds value as a string
+            snprintf(seconds_str, sizeof(seconds_str), "%.6f", total_seconds);
+
+            // Remove trailing zeros from fractional part for compact representation
+            char *dot = strchr(seconds_str, '.');
+            if (dot) {
+                char *end = seconds_str + strlen(seconds_str) - 1;
+                while (end > dot && *end == '0') {
+                    *end-- = '\0';
+                }
+                if (end == dot) {
+                    *end = '\0'; // Remove the dot if no fractional part remains
+                }
+            }
+
+            appendBinaryStringInfo(buffer, seconds_str, strlen(seconds_str));
+            appendBinaryStringInfo(buffer, "S", 1); // Append the 'S' suffix
+        }
+
         Py_DECREF(years);
         Py_DECREF(months);
-        Py_DECREF(weeks);
         Py_DECREF(days);
         Py_DECREF(hours);
         Py_DECREF(minutes);
         Py_DECREF(seconds);
-        Py_DECREF(millis);
+        Py_DECREF(micros);
         return;
     }
     if (PyNumber_Check(pyobject))

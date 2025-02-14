@@ -342,33 +342,6 @@ multicornGetForeignRelSize(PlannerInfo *root,
         safeToPushLimit = false;
     }
 
-    /* Only forward LIMIT if safe to do so */
-    if (safeToPushLimit)
-    {
-        /* See if we can forward LIMIT */
-        if (offsetNode && nodeTag(offsetNode) == T_Const) {
-            /* OFFSET is specified. We can't push LIMIT unless it is specified as 0 OR NULL */
-            Const* constNode = (Const*)offsetNode;
-            if (constNode->constisnull) {
-                /* Same as no OFFSET */
-                hasOffset = false;
-            } else {
-                int64 offsetValue = DatumGetInt64(constNode->constvalue);
-                /* Maybe it's OFFSET 0 */
-                hasOffset = offsetValue > 0;
-            }
-        }
-        /* Forward LIMIT _only_ if no OFFSET isn't in the query */
-        if (!hasOffset && limitNode && nodeTag(limitNode) == T_Const) {
-            Const* constNode = (Const*)limitNode;
-            if (constNode->constisnull) {
-                /* Same as LIMIT ALL = no LIMIT */
-            } else {
-                planstate->limit = DatumGetInt64(constNode->constvalue);
-            }
-        }
-    }
-
     /* Set the unique plan identifier */
     planstate->plan_id = pg_atomic_fetch_add_u64(&global_query_counter, 1);
     /* Initialize the conversion info array */
@@ -435,6 +408,40 @@ multicornGetForeignRelSize(PlannerInfo *root,
             &planstate->qual_list);
 
     }
+
+    /* If not all qualifiers are supported by Multicorn, then LIMIT cannot be pushed */
+    if (list_length(planstate->qual_list) != list_length(baserel->baserestrictinfo)) {
+        safeToPushLimit = false;
+    }
+
+    /* Only forward LIMIT if safe to do so */
+    if (safeToPushLimit)
+    {
+        /* See if we can forward LIMIT */
+        if (offsetNode && nodeTag(offsetNode) == T_Const) {
+            /* OFFSET is specified. We can't push LIMIT unless it is specified as 0 OR NULL */
+            Const* constNode = (Const*)offsetNode;
+            if (constNode->constisnull) {
+                /* Same as no OFFSET */
+                hasOffset = false;
+            } else {
+                int64 offsetValue = DatumGetInt64(constNode->constvalue);
+                /* Maybe it's OFFSET 0 */
+                hasOffset = offsetValue > 0;
+            }
+        }
+        /* Forward LIMIT _only_ if no OFFSET isn't in the query */
+        if (!hasOffset && limitNode && nodeTag(limitNode) == T_Const) {
+            Const* constNode = (Const*)limitNode;
+            if (constNode->constisnull) {
+                /* Same as LIMIT ALL = no LIMIT */
+            } else {
+                planstate->limit = DatumGetInt64(constNode->constvalue);
+            }
+        }
+    }
+
+
     /* Inject the "rows" and "width" attribute into the baserel */
     getRelSize(planstate, root, &baserel->rows, &baserel->reltarget->width);
     planstate->width = baserel->reltarget->width;
@@ -586,7 +593,7 @@ multicornExplainForeignScan(ForeignScanState *node, ExplainState *es)
     Py_INCREF(p_iterable);
     while((p_item = PyIter_Next(p_iterable))){
         p_str = PyObject_Str(p_item);
-        ExplainPropertyText("Multicorn", PyString_AsString(p_str), es);
+        ExplainPropertyText("DAS", PyString_AsString(p_str), es);
         Py_DECREF(p_str);
     }
     Py_DECREF(p_iterable);
