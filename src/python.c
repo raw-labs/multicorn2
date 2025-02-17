@@ -19,6 +19,7 @@
 #include "mb/pg_wchar.h"
 #include "access/xact.h"
 #include "utils/lsyscache.h"
+#include "executor/spi.h"
 
 
 List	   *getOptions(Oid foreigntableid);
@@ -977,6 +978,124 @@ getDeparsedSortGroup(PyObject *sortKey)
 
 
 /*
+ * get_environment_dict:
+ *
+ * Queries the "environment" table (which has two TEXT columns: key and value)
+ * and returns a new Python dictionary mapping keys to values.
+ *
+ * Returns: A new reference to a Python dict on success, or NULL on failure.
+ */
+static PyObject *
+get_environment_dict(void)
+{
+    PyObject   *env_dict = NULL;
+    int         ret;
+
+    /* Create a new empty Python dictionary */
+    env_dict = PyDict_New();
+    if (env_dict == NULL) {
+        elog(WARNING, "Couldn't allocate environment data structure");
+        return NULL;
+    }
+
+    /* Connect to SPI */
+    if ((ret = SPI_connect()) != SPI_OK_CONNECT)
+    {
+        elog(WARNING, "SPI_connect failed");
+        Py_DECREF(env_dict);
+        return NULL;
+    }
+
+    /* Execute the query. 0 means no limit on the number of rows returned. */
+    /* Use PG_TRY/PG_CATCH to catch errors from SPI_exec */
+    PG_TRY();
+    {
+        ret = SPI_exec("SELECT key, value FROM environment", 0);
+    }
+    PG_CATCH();
+    {
+        ErrorData *edata = CopyErrorData();
+        /* Check for undefined table error */
+        if (edata->sqlerrcode == ERRCODE_UNDEFINED_TABLE)
+        {
+            /* Table doesn't exist; ignore the error and return an empty dict */
+            FlushErrorState();
+            SPI_finish();
+            Py_DECREF(env_dict);
+            elog(DEBUG, "no environment");
+            return NULL;
+        }
+        else
+        {
+            /* Re-throw any other error */
+            PG_RE_THROW();
+        }
+    }
+    PG_END_TRY();
+    if (ret != SPI_OK_SELECT)
+    {
+        SPI_finish();
+        elog(WARNING, "SPI_exec failed for environment query");
+        Py_DECREF(env_dict);
+        return NULL;
+    }
+
+    if (SPI_processed > 0 && SPI_tuptable != NULL)
+    {
+        TupleDesc tupdesc = SPI_tuptable->tupdesc;
+        uint64 i;
+
+        for (i = 0; i < SPI_processed; i++)
+        {
+            HeapTuple tuple = SPI_tuptable->vals[i];
+            bool isnull_key = false, isnull_val = false;
+            Datum key_datum = SPI_getbinval(tuple, tupdesc, 1, &isnull_key);
+            Datum value_datum = SPI_getbinval(tuple, tupdesc, 2, &isnull_val);
+
+            /* Skip rows with any null values */
+            if (isnull_key || isnull_val)
+                continue;
+
+            /* Convert the Datum values to C strings */
+            char *key_cstr = TextDatumGetCString(key_datum);
+            char *value_cstr = TextDatumGetCString(value_datum);
+
+            /* Create Python Unicode objects from the C strings */
+            PyObject *py_key = PyUnicode_FromString(key_cstr);
+            PyObject *py_value = PyUnicode_FromString(value_cstr);
+
+            /* Free the palloc'd strings if needed */
+            pfree(key_cstr);
+            pfree(value_cstr);
+
+            if (!py_key || !py_value)
+            {
+                Py_XDECREF(py_key);
+                Py_XDECREF(py_value);
+                Py_DECREF(env_dict);
+                SPI_finish();
+                return NULL;
+            }
+
+            /* Insert into the Python dictionary */
+            if (PyDict_SetItem(env_dict, py_key, py_value) != 0)
+            {
+                Py_DECREF(py_key);
+                Py_DECREF(py_value);
+                Py_DECREF(env_dict);
+                SPI_finish();
+                return NULL;
+            }
+            Py_DECREF(py_key);
+            Py_DECREF(py_value);
+        }
+    }
+
+    SPI_finish();
+    return env_dict;
+}
+
+/*
  * Execute the query in the python fdw, and returns an iterator.
  */
 PyObject *
@@ -1053,6 +1172,11 @@ execute(ForeignScanState *node, ExplainState *es)
         Py_DECREF(python_sortkey);
     }
     {
+        PyObject* p_env = get_environment_dict();
+        if (!p_env) {
+            p_env = Py_None;
+        }
+
         PyObject * args,
                  * kwargs = PyDict_New();
         if(PyList_Size(p_pathkeys) > 0){
@@ -1071,7 +1195,7 @@ execute(ForeignScanState *node, ExplainState *es)
                 verbose = Py_False;
             }
             p_method = PyObject_GetAttrString(state->fdw_instance, "explain");
-            args = PyTuple_Pack(2, p_quals, p_targets_set);
+            args = PyTuple_Pack(3, p_env, p_quals, p_targets_set);
             PyDict_SetItemString(kwargs, "verbose", verbose);
             errorCheck();
         } else {
@@ -1080,11 +1204,12 @@ execute(ForeignScanState *node, ExplainState *es)
 
             p_method = PyObject_GetAttrString(state->fdw_instance, "execute");
             errorCheck();
-            args = PyTuple_Pack(2, p_quals, p_targets_set);
+            args = PyTuple_Pack(3, p_env, p_quals, p_targets_set);
             errorCheck();
         }
         p_iterable = PyObject_Call(p_method, args, kwargs);
         errorCheck();
+        Py_DECREF(p_env);
         Py_DECREF(p_method);
         Py_DECREF(args);
         Py_DECREF(kwargs);
