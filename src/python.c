@@ -1076,7 +1076,7 @@ execute(ForeignScanState *node, ExplainState *es)
             errorCheck();
         } else {
             /* For execution, pass back the plan identifier. This allows the plugin to distinguish between different executions of the same plan node. */
-            PyDict_SetItemString(kwargs, "planid", PyLong_FromUnsignedLongLong(state->plan_id));
+            PyDict_SetItemString(kwargs, "planid", PyString_FromString(state->plan_id));
 
             p_method = PyObject_GetAttrString(state->fdw_instance, "execute");
             errorCheck();
