@@ -71,7 +71,7 @@ typedef struct MulticornPlanState
     ConversionInfo **cinfos;
     List	   *pathkeys; /* list of MulticornDeparsedSortGroup) */
     int64		limit; /* store the LIMIT value, or -1 if no limit */
-    uint64		plan_id; /* unique identifier for this plan */
+    char		plan_id[64]; /* unique identifier for this plan */
 
     /* For some reason, `baserel->reltarget->width` gets changed
      * outside of our control somewhere between GetForeignPaths and
@@ -94,7 +94,7 @@ typedef struct MulticornExecState
     Datum	   *values;
     bool	   *nulls;
     int64       limit; /* store the LIMIT value, or -1 if no limit */
-    uint64	   	plan_id; /* unique identifier for this plan */
+    char		plan_id[64]; /* unique identifier for this plan */
     ConversionInfo **cinfos;
     /* Common buffer to avoid repeated allocations */
     StringInfo	buffer;
