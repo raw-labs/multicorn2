@@ -976,7 +976,6 @@ getDeparsedSortGroup(PyObject *sortKey)
     return md;
 }
 
-
 /*
  * get_environment_dict:
  *
@@ -1022,13 +1021,16 @@ get_environment_dict(void)
             FlushErrorState();
             elog(DEBUG3, "No environment.");
             SPI_finish();
-            Py_DECREF(env_dict);
-            return NULL;
+            env_dict = PyDict_New();
+            return env_dict;
         }
         else
         {
-            /* Re-throw any other error */
-            PG_RE_THROW();
+            /* Log the error (e.g. table exists but didn't have the expected columns,
+             * or it's not readable, etc.) */
+            elog(WARNING, "Environment query failed: %s", edata->message);
+            SPI_finish();
+            return NULL;
         }
     }
     PG_END_TRY();
@@ -1045,6 +1047,20 @@ get_environment_dict(void)
         TupleDesc tupdesc = SPI_tuptable->tupdesc;
         uint64 i;
 
+        Oid key_coltype, value_coltype;
+        key_coltype = SPI_gettypeid(tupdesc, 1);
+        if (key_coltype != TEXTOID && key_coltype != VARCHAROID) {
+            elog(WARNING, "environment key: wrong OID type %u", key_coltype);
+            SPI_finish();
+            return NULL;
+        }
+        value_coltype = SPI_gettypeid(tupdesc, 2);
+        if (value_coltype != TEXTOID && value_coltype != VARCHAROID) {
+            elog(WARNING, "environment value: wrong OID type %u", value_coltype);
+            SPI_finish();
+            return NULL;
+        }
+
         for (i = 0; i < SPI_processed; i++)
         {
             HeapTuple tuple = SPI_tuptable->vals[i];
@@ -1053,8 +1069,9 @@ get_environment_dict(void)
             Datum value_datum = SPI_getbinval(tuple, tupdesc, 2, &isnull_val);
 
             /* Skip rows with any null values */
-            if (isnull_key || isnull_val)
+            if (isnull_key || isnull_val) {
                 continue;
+            }
 
             /* Convert the Datum values to C strings */
             char *key_cstr = TextDatumGetCString(key_datum);
@@ -1070,6 +1087,7 @@ get_environment_dict(void)
 
             if (!py_key || !py_value)
             {
+                elog(WARNING, "Couldn't convert environment entry (key=%p, value=%p)", py_key, py_value);
                 Py_XDECREF(py_key);
                 Py_XDECREF(py_value);
                 Py_DECREF(env_dict);
@@ -1080,6 +1098,7 @@ get_environment_dict(void)
             /* Insert into the Python dictionary */
             if (PyDict_SetItem(env_dict, py_key, py_value) != 0)
             {
+                elog(WARNING, "Couldn't insert dictionary entry");
                 Py_DECREF(py_key);
                 Py_DECREF(py_value);
                 Py_DECREF(env_dict);
@@ -1174,7 +1193,7 @@ execute(ForeignScanState *node, ExplainState *es)
     {
         PyObject* p_env = get_environment_dict();
         if (!p_env) {
-            // The environment wasn't collected, send None.
+            // The environment wasn't collected (an error), send None.
             p_env = Py_None;
         }
 
