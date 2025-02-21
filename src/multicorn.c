@@ -127,7 +127,8 @@ MulticornExecState *multicornInitializeExecState(void *internal_plan_state);
 /* Hash table mapping oid to fdw instances */
 HTAB	   *InstancesHash;
 
-/* Global query counter */
+/* FDW unique ID and global query counter (used to generate the unique plan ID) */
+static int fdw_unique_id;
 static pg_atomic_uint64 global_query_counter;
 
 
@@ -138,7 +139,8 @@ _PG_init()
     MemoryContext oldctx;
     bool need_import_plpy;
 
-    /* Initialize the global query counter */
+    /* Initialize the fdw ID and global query counter */
+    fdw_unique_id = MyProcPid;
     pg_atomic_init_u64(&global_query_counter, 0);
 
     oldctx = MemoryContextSwitchTo(CacheMemoryContext);
@@ -343,7 +345,7 @@ multicornGetForeignRelSize(PlannerInfo *root,
     }
 
     /* Set the unique plan identifier */
-    planstate->plan_id = pg_atomic_fetch_add_u64(&global_query_counter, 1);
+    snprintf(planstate->plan_id, sizeof(planstate->plan_id), "%d-%lu", fdw_unique_id, pg_atomic_fetch_add_u64(&global_query_counter, 1));
     /* Initialize the conversion info array */
     {
         Relation	rel = RelationIdGetRelation(ftable->relid);
@@ -1365,9 +1367,9 @@ multicornSerializePlanState(MulticornPlanState * state)
     result = lappend(result, makeConst(INT8OID,
                     -1, InvalidOid, 8, Int64GetDatum(state->limit), false, true));
 
-    /* Serialize the 'plan_id' attribute as INT8 */
-    result = lappend(result, makeConst(INT8OID,
-                    -1, InvalidOid, 8, Int64GetDatum(state->plan_id), false, true));
+    /* Serialize the 'plan_id' attribute as TEXT */
+    result = lappend(result, makeConst(TEXTOID,
+					-1, InvalidOid, -1, CStringGetDatum(state->plan_id), false, true));
 
     return result;
 }
@@ -1399,9 +1401,9 @@ multicornInitializeExecState(void *internalstate)
     /* Deserialize the 'limit' value */
     execstate->limit = DatumGetInt64(((Const *) list_nth(values, 4))->constvalue);
 
-    /* Deserialize the 'plan_id' value */
-    Datum plan_id_datum = ((Const *) list_nth(values, 5))->constvalue;
-    execstate->plan_id = DatumGetInt64(plan_id_datum);
+	/* Deserialize the 'plan_id' value */
+	Datum plan_id_datum = ((Const *) list_nth(values, 5))->constvalue;
+    strncpy(execstate->plan_id, TextDatumGetCString(plan_id_datum), sizeof(execstate->plan_id));
 
     return execstate;
 }
