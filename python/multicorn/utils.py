@@ -21,12 +21,13 @@ REPORT_CODES = {
 
 
 class MulticornException(Exception):
-    def __init__(self, message, code, hint, detail):
+    def __init__(self, message, code, hint, detail, sqlstate=None):
         self._is_multicorn_exception = True
         self.message = message
         self.code = code
         self.hint = hint
         self.detail = detail
+        self.sqlstate = sqlstate
 
 
 def log_to_postgres(message, level=INFO, hint=None, detail=None):
