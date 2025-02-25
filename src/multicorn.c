@@ -20,11 +20,13 @@
 #include "access/xact.h"
 #include "nodes/makefuncs.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_proc.h"
 #include "utils/memutils.h"
 #include "miscadmin.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "parser/parsetree.h"
+#include "parser/parse_func.h"
 #include "fmgr.h"
 #include "port/atomics.h"
 #include "catalog/namespace.h"
@@ -117,8 +119,10 @@ static List *multicornImportForeignSchema(ImportForeignSchemaStmt * stmt,
 
 static void multicorn_xact_callback(XactEvent event, void *arg);
 
-/* We use HSTOREs and HSTORE ARRAYs and need to set once and for all the array Oid */
+/* We use HSTOREs and HSTORE ARRAYs and need to set once and for all the related Oid */
+void setHstoreOid(Oid oid);
 void setHstoreArrayOid(Oid oid);
+void setHstoreToJsonbOid(Oid oid);
 
 /*	Helpers functions */
 void	   *multicornSerializePlanState(MulticornPlanState * planstate);
@@ -173,12 +177,27 @@ _PG_init()
                                 &ctl,
                                 HASH_ELEM | HASH_FUNCTION);
     {
+        Oid hstoreOid = GetSysCacheOid2(TYPENAMENSP,
+             Anum_pg_type_oid,
+             CStringGetDatum("hstore"),
+             ObjectIdGetDatum(get_namespace_oid("public", false)));
+
+        setHstoreOid(hstoreOid);
+
         Oid hstoreArrayOid = GetSysCacheOid2(TYPENAMENSP,
              Anum_pg_type_oid,
              CStringGetDatum("_hstore"),
              ObjectIdGetDatum(get_namespace_oid("public", false)));
 
         setHstoreArrayOid(hstoreArrayOid);
+
+        Oid hstoreToJsonbOid = LookupFuncName(list_make1(makeString("hstore_to_jsonb")),
+              1,
+              &hstoreOid,
+              false);
+
+        setHstoreToJsonbOid(hstoreToJsonbOid);
+
     }
     MemoryContextSwitchTo(oldctx);
 }
