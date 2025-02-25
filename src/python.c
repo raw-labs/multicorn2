@@ -110,6 +110,9 @@ static Oid hstore_oid = InvalidOid;
 static Oid hstore_array_oid = InvalidOid;
 static Oid hstore_to_jsonb_oid = InvalidOid;
 
+/* Setters for HSTORE related OIDs: hstore, hstore[] and hstore_to_jsonb, used when
+ * translating hstore values to python */
+
 void setHstoreOid(Oid oid) {
     if (oid == InvalidOid) {
         /* The HSTORE extension should have been loaded upfront. */
@@ -1976,6 +1979,7 @@ datumByteaToPython(Datum datum, ConversionInfo * cinfo)
     return PyBytes_FromStringAndSize(str, size);
 }
 
+/* Helper that turns a plain string into a Python dictionary */
 static PyObject *
 jsonStrToPython(char *json_str)
 {
@@ -2011,10 +2015,11 @@ jsonStrToPython(char *json_str)
 
     return result;
 }
-    
+
 static PyObject *
 datumHstoreToPython(Datum datum, ConversionInfo *cinfo)
 {
+    /* Use the internal hstore_to_json and then turn json to Python dictionary */
     Datum jsonbDatum;
     char *json_str;
 
