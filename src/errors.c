@@ -58,6 +58,7 @@ reportException(PyObject *pErrType, PyObject *pErrValue, PyObject *pErrTraceback
     PyObject   *pTemp;
     PyObject   *tracebackModule = PyImport_ImportModule("traceback");
     PyObject   *format_exception = PyObject_GetAttrString(tracebackModule, "format_exception");
+    
     PyObject   *newline = PyString_FromString("\n");
     int			severity;
 
@@ -68,8 +69,10 @@ reportException(PyObject *pErrType, PyObject *pErrValue, PyObject *pErrTraceback
     if (pErrTraceback != NULL)
     {
         traceback_list = PyObject_CallFunction(format_exception, "(O,O,O)", pErrType, pErrValue, pErrTraceback);
-        errTraceback = PyString_AsString(PyObject_CallMethod(newline, "join", "(O)", traceback_list));
+        PyObject   *joined_tb = PyObject_CallMethod(newline, "join", "(O)", traceback_list);
+        errTraceback = PyString_AsString(joined_tb);
         Py_DECREF(pErrTraceback);
+        Py_DECREF(joined_tb);
         Py_DECREF(traceback_list);
     }
 
@@ -93,6 +96,9 @@ reportException(PyObject *pErrType, PyObject *pErrValue, PyObject *pErrTraceback
         if (errstart(severity, __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN))
 #endif
             errmsg("Error in python: %s", errName);
+
+        /* In this code path, errcode is not set. This will fallback to an unclassified error code in Postgres. */
+
         errdetail("%s", errValue);
         errdetail_log("%s", errTraceback);
     }
@@ -116,6 +122,7 @@ void reportMulticornException(PyObject* pErrValue)
     PyObject *hint = PyObject_GetAttrString(pErrValue, "hint");
     PyObject *detail = PyObject_GetAttrString(pErrValue, "detail");
     PyObject *code = PyObject_GetAttrString(pErrValue, "code");
+    PyObject *sqlst = PyObject_GetAttrString(pErrValue, "sqlstate");
     int level = PyLong_AsLong(code);
 
     // Matches up with REPORT_CODES in utils.py
@@ -139,6 +146,22 @@ void reportMulticornException(PyObject* pErrValue)
         if (errstart(severity, __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN))
     #endif
         {
+            /* If we got a user-specified sqlstate, use it. Otherwise default to ERRCODE_FDW_ERROR,
+               e.g. HV000, which fall under the FDW "HV" class of Postgres errors. */
+            if (sqlst && sqlst != Py_None)
+            {
+                char* s = PyString_AsString(sqlst);
+                /* MAKE_SQLSTATE() requires 5 characters */
+                if (s && strlen(s) == 5)
+                    errcode(MAKE_SQLSTATE(s[0], s[1], s[2], s[3], s[4]));
+                else
+                    errcode(ERRCODE_FDW_ERROR);
+            }
+            else
+            {
+                errcode(ERRCODE_FDW_ERROR);
+            }
+
             errmsg("%s", PyString_AsString(message));
             if (hint != NULL && hint != Py_None)
             {
@@ -164,6 +187,7 @@ void reportMulticornException(PyObject* pErrValue)
         Py_DECREF(hint);
         Py_DECREF(detail);
         Py_DECREF(code);
+        Py_XDECREF(sqlst);
         Py_DECREF(pErrValue);
         PG_RE_THROW();
     }
