@@ -1354,6 +1354,7 @@ void *
 multicornSerializePlanState(MulticornPlanState * state)
 {
     List	   *result = NULL;
+    text       *txt;
 
     result = lappend(result, makeConst(INT4OID,
                           -1, InvalidOid, 4, Int32GetDatum(state->numattrs), false, true));
@@ -1368,8 +1369,9 @@ multicornSerializePlanState(MulticornPlanState * state)
                     -1, InvalidOid, 8, Int64GetDatum(state->limit), false, true));
 
     /* Serialize the 'plan_id' attribute as TEXT */
+    txt = cstring_to_text(state->plan_id);
     result = lappend(result, makeConst(TEXTOID,
-					-1, InvalidOid, -1, CStringGetDatum(state->plan_id), false, true));
+					-1, InvalidOid, -1, PointerGetDatum(txt), false, false));
 
     return result;
 }
@@ -1402,8 +1404,10 @@ multicornInitializeExecState(void *internalstate)
     execstate->limit = DatumGetInt64(((Const *) list_nth(values, 4))->constvalue);
 
 	/* Deserialize the 'plan_id' value */
-	Datum plan_id_datum = ((Const *) list_nth(values, 5))->constvalue;
-    strncpy(execstate->plan_id, TextDatumGetCString(plan_id_datum), sizeof(execstate->plan_id));
+    Const *planid_const = (Const *) list_nth(values, 5);
+    Datum plan_id_datum = planid_const->constvalue;
+    char *planid_str = TextDatumGetCString(plan_id_datum);
+    strncpy(execstate->plan_id, planid_str, sizeof(execstate->plan_id));
 
     return execstate;
 }

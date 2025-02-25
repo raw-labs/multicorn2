@@ -21,10 +21,15 @@ REPORT_CODES = {
 
 
 class MulticornException(Exception):
-    def __init__(self, message, code, hint, detail, sqlstate=None):
+    def __init__(self, message, level=ERROR, hint=None, detail=None, sqlstate=None):
         self._is_multicorn_exception = True
         self.message = message
+
+        code = REPORT_CODES.get(level, None)
+        if code is None:
+            raise KeyError("Not a valid log level")
         self.code = code
+
         self.hint = hint
         self.detail = detail
         self.sqlstate = sqlstate

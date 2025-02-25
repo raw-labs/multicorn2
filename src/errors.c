@@ -58,6 +58,7 @@ reportException(PyObject *pErrType, PyObject *pErrValue, PyObject *pErrTraceback
     PyObject   *pTemp;
     PyObject   *tracebackModule = PyImport_ImportModule("traceback");
     PyObject   *format_exception = PyObject_GetAttrString(tracebackModule, "format_exception");
+    
     PyObject   *newline = PyString_FromString("\n");
     int			severity;
 
@@ -68,8 +69,10 @@ reportException(PyObject *pErrType, PyObject *pErrValue, PyObject *pErrTraceback
     if (pErrTraceback != NULL)
     {
         traceback_list = PyObject_CallFunction(format_exception, "(O,O,O)", pErrType, pErrValue, pErrTraceback);
-        errTraceback = PyString_AsString(PyObject_CallMethod(newline, "join", "(O)", traceback_list));
+        PyObject   *joined_tb = PyObject_CallMethod(newline, "join", "(O)", traceback_list);
+        errTraceback = PyString_AsString(joined_tb);
         Py_DECREF(pErrTraceback);
+        Py_DECREF(joined_tb);
         Py_DECREF(traceback_list);
     }
 
