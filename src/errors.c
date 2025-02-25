@@ -97,7 +97,7 @@ reportException(PyObject *pErrType, PyObject *pErrValue, PyObject *pErrTraceback
 #endif
             errmsg("Error in python: %s", errName);
 
-        /* In this code path, since errcode is not set, so this will fallback to an unclassified error code in Postgres. */
+        /* In this code path, errcode is not set. This will fallback to an unclassified error code in Postgres. */
 
         errdetail("%s", errValue);
         errdetail_log("%s", errTraceback);
