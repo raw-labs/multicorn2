@@ -1471,6 +1471,7 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
         elog(DEBUG1, "Importing Python object as JSON (OID=%d)", cinfo->atttypoid);
         PyObject *multicorn_das = PyImport_ImportModule("multicorn_das");
         PyObject *p_to_json = PyObject_GetAttrString(multicorn_das, "multicorn_serialize_as_json");
+        errorCheck();
         PyObject *s = PyObject_CallFunction(p_to_json, "O", pyobject);
         Py_DECREF(multicorn_das);
         Py_DECREF(p_to_json);
