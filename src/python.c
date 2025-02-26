@@ -106,7 +106,21 @@ static void begin_remote_xact(CacheEntry * entry);
 
 static char* ascii_encoding_name = "ascii";
 
+static Oid hstore_oid = InvalidOid;
 static Oid hstore_array_oid = InvalidOid;
+static Oid hstore_to_jsonb_oid = InvalidOid;
+
+/* Setters for HSTORE related OIDs: hstore, hstore[] and hstore_to_jsonb, used when
+ * translating hstore values to python */
+
+void setHstoreOid(Oid oid) {
+    if (oid == InvalidOid) {
+        /* The HSTORE extension should have been loaded upfront. */
+        elog(ERROR, "Invalid HSTORE OID (is the 'hstore' extension loaded?)");
+    }
+    elog(INFO, "Setting HSTORE OID to %d", oid);
+    hstore_oid = oid;
+}
 
 void setHstoreArrayOid(Oid oid) {
     if (oid == InvalidOid) {
@@ -115,6 +129,15 @@ void setHstoreArrayOid(Oid oid) {
     }
     elog(INFO, "Setting HSTORE array OID to %d", oid);
     hstore_array_oid = oid;
+}
+
+void setHstoreToJsonbOid(Oid oid) {
+    if (oid == InvalidOid) {
+        /* The HSTORE extension should have been loaded upfront. */
+        elog(ERROR, "Invalid hstore_to_jsonb OID (is the 'hstore' extension loaded?)");
+    }
+    elog(INFO, "Setting hstore_to_jsonb OID to %d", oid);
+    hstore_to_jsonb_oid = oid;
 }
 
 /*
@@ -1957,6 +1980,71 @@ datumByteaToPython(Datum datum, ConversionInfo * cinfo)
     return PyBytes_FromStringAndSize(str, size);
 }
 
+/* Helper that turns a plain string into a Python dictionary */
+static PyObject *
+jsonStrToPython(char *json_str)
+{
+    PyObject *json_module, *json_loads, *py_json_str, *result;
+
+    /* Import the Python json module */
+    json_module = PyImport_ImportModule("json");
+    if (!json_module) {
+        elog(ERROR, "import python/json failed");
+    }
+    /* Get the 'loads' function from the json module */
+    json_loads = PyObject_GetAttrString(json_module, "loads");
+    if(!json_loads) {
+        Py_DECREF(json_module);
+        elog(ERROR, "import python/json.loads failed");
+    }
+    /* Create a Python string object from the C string */
+    py_json_str = PyUnicode_FromString(json_str);
+    if (!py_json_str)
+    {
+        Py_DECREF(json_loads);
+        Py_DECREF(json_module);
+        elog(ERROR, "conversion to python string failed");
+    }
+
+    /* Call json.loads() to convert the JSON string into a Python object */
+    result = PyObject_CallFunctionObjArgs(json_loads, py_json_str, NULL);
+
+    /* Clean up references */
+    Py_DECREF(py_json_str);
+    Py_DECREF(json_loads);
+    Py_DECREF(json_module);
+
+    return result;
+}
+
+static PyObject *
+datumHstoreToPython(Datum datum, ConversionInfo *cinfo)
+{
+    /* Use the internal hstore_to_json and then turn json to Python dictionary */
+    Datum jsonbDatum;
+    char *json_str;
+
+    /* Call hstore_to_jsonb using the OidFunctionCall1 interface */
+    jsonbDatum = OidFunctionCall1(hstore_to_jsonb_oid, datum);
+
+    /* Convert the JSON datum to a C string using the json output function */
+    json_str = DatumGetCString(DirectFunctionCall1(jsonb_out, jsonbDatum));
+
+    return jsonStrToPython(json_str);
+}
+
+
+static PyObject *
+datumJsonbToPython(Datum datum, ConversionInfo *cinfo)
+{
+    char *json_str;
+
+    /* Convert the JSONB datum to a C string using the jsonb output function */
+    json_str = DatumGetCString(DirectFunctionCall1(jsonb_out, datum));
+
+    return jsonStrToPython(json_str);
+}
+
 
 PyObject *
 datumToPython(Datum datum, Oid type, ConversionInfo * cinfo)
@@ -1991,7 +2079,14 @@ datumToPython(Datum datum, Oid type, ConversionInfo * cinfo)
             return datumBoolToPython(datum, cinfo);
         case TIMEOID:
             return datumTimeToPython(datum, cinfo);
+        case JSONBOID:
+            return datumJsonbToPython(datum, cinfo);
         default:
+            /* Maybe HSTORE? We check here because its OID is known at runtime
+             * and cannot be added to the switch/case. */
+            if (type == hstore_oid) {
+                return datumHstoreToPython(datum, cinfo);
+            }
             /* Case for the array ? */
             tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type));
             if (!HeapTupleIsValid(tuple))
