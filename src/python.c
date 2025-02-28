@@ -118,7 +118,7 @@ void setHstoreOid(Oid oid) {
         /* The HSTORE extension should have been loaded upfront. */
         elog(ERROR, "Invalid HSTORE OID (is the 'hstore' extension loaded?)");
     }
-    elog(INFO, "Setting HSTORE OID to %d", oid);
+    elog(DEBUG3, "Setting HSTORE OID to %d", oid);
     hstore_oid = oid;
 }
 
@@ -127,7 +127,7 @@ void setHstoreArrayOid(Oid oid) {
         /* The HSTORE extension should have been loaded upfront. */
         elog(ERROR, "Invalid HSTORE array OID (is the 'hstore' extension loaded?)");
     }
-    elog(INFO, "Setting HSTORE array OID to %d", oid);
+    elog(DEBUG3, "Setting HSTORE array OID to %d", oid);
     hstore_array_oid = oid;
 }
 
@@ -136,7 +136,7 @@ void setHstoreToJsonbOid(Oid oid) {
         /* The HSTORE extension should have been loaded upfront. */
         elog(ERROR, "Invalid hstore_to_jsonb OID (is the 'hstore' extension loaded?)");
     }
-    elog(INFO, "Setting hstore_to_jsonb OID to %d", oid);
+    elog(DEBUG3, "Setting hstore_to_jsonb OID to %d", oid);
     hstore_to_jsonb_oid = oid;
 }
 
