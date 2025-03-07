@@ -1509,65 +1509,7 @@ pyobjectToCString(PyObject *pyobject, StringInfo buffer,
     }
     if (cinfo->atttypoid == INTERVALOID) {
         elog(DEBUG1, "Importing Python interval (OID=%d)", cinfo->atttypoid);
-        // It's a dictionary. All its values are integers.
-        PyObject *years = PyDict_GetItemString(pyobject, "years");
-        PyObject *months = PyDict_GetItemString(pyobject, "months");
-        PyObject *days = PyDict_GetItemString(pyobject, "days");
-        PyObject *hours = PyDict_GetItemString(pyobject, "hours");
-        PyObject *minutes = PyDict_GetItemString(pyobject, "minutes");
-        PyObject *seconds = PyDict_GetItemString(pyobject, "seconds");
-        PyObject *micros = PyDict_GetItemString(pyobject, "micros");
-        appendBinaryStringInfo(buffer, "P", 1);
-        pynumberToCString(years, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "Y", 1);
-        pynumberToCString(months, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "M", 1);
-        pynumberToCString(days, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "DT", 2); // D + T to separate time
-        pynumberToCString(hours, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "H", 1);
-        pynumberToCString(minutes, buffer, cinfo);
-        appendBinaryStringInfo(buffer, "M", 1);
-
-        // Combine seconds and micros into a single value
-        if (seconds || micros) {
-            char seconds_str[64] = {0};
-            double total_seconds = 0.0;
-
-            // Convert seconds and micros to numeric values
-            if (seconds) {
-                total_seconds += PyFloat_AsDouble(seconds);
-            }
-            if (micros) {
-                total_seconds += PyFloat_AsDouble(micros) / 1e6;
-            }
-
-            // Format the combined seconds value as a string
-            snprintf(seconds_str, sizeof(seconds_str), "%.6f", total_seconds);
-
-            // Remove trailing zeros from fractional part for compact representation
-            char *dot = strchr(seconds_str, '.');
-            if (dot) {
-                char *end = seconds_str + strlen(seconds_str) - 1;
-                while (end > dot && *end == '0') {
-                    *end-- = '\0';
-                }
-                if (end == dot) {
-                    *end = '\0'; // Remove the dot if no fractional part remains
-                }
-            }
-
-            appendBinaryStringInfo(buffer, seconds_str, strlen(seconds_str));
-            appendBinaryStringInfo(buffer, "S", 1); // Append the 'S' suffix
-        }
-
-        Py_DECREF(years);
-        Py_DECREF(months);
-        Py_DECREF(days);
-        Py_DECREF(hours);
-        Py_DECREF(minutes);
-        Py_DECREF(seconds);
-        Py_DECREF(micros);
+        pyunicodeToCString(pyobject, buffer, cinfo);
         return;
     }
     if (PyNumber_Check(pyobject))
@@ -2339,4 +2281,183 @@ int getModifyBatchSize(PyObject *fdw_instance)
     Py_DECREF(value);
 
     return result;
+}
+
+/*
+ * This function constructs a dummy AttInMetadata structure for a given return type.
+ * It creates a tuple descriptor with a single attribute and initializes it with the
+ * specified return type. If the return type is an array, it adjusts the dimension 
+ * count accordingly.
+ */
+AttInMetadata *
+build_dummy_attinmeta(Oid retType)
+{
+    TupleDesc tupDesc;
+    AttInMetadata *attinmeta;
+    int attndims = 0;
+    Oid elemType = get_element_type(retType);
+
+    /* If retType is an array type, set attndims to 1 */
+    if (OidIsValid(elemType)) {
+        attndims = 1;
+    }
+
+    /* Create a tuple descriptor with 1 column */
+    tupDesc = CreateTemplateTupleDesc(1);
+
+    /*
+     * Initialize the single attribute.
+     * Name: "dummy"
+     * Type: retType
+     * typmod: -1 (unknown)
+     * attndims: set as above (0 for scalar, 1 for array)
+     */
+    TupleDescInitEntry(tupDesc,
+                       (AttrNumber) 1,
+                       "dummy",
+                       retType,
+                       -1,
+                       attndims);
+
+    /* Get the conversion info from the tuple descriptor */
+    attinmeta = TupleDescGetAttInMetadata(tupDesc);
+
+    return attinmeta;
+}
+
+
+/*
+ * This function executes the Python function defined in multicorn to execute functions and returns
+ * the result as a Datum. It prepares the options and arguments as Python dictionaries,
+ * calls the Python function, and converts the result back to a PostgreSQL Datum.
+ */
+Datum
+foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *argTypes, Datum *argDatums, bool *argNulls, Oid retType)
+{
+    /* 1) Build a Python dictionary from the FDW-like options list. */
+    PyObject *option_dict = optionsListToPyDict(options_list);
+    errorCheck();  /* check for Python errors */
+
+    /* 2) Build a Python dictionary for the function arguments, keyed by name. */
+    PyObject *py_argdict = PyDict_New();
+    if (!py_argdict)
+    {
+        Py_DECREF(option_dict);
+        elog(ERROR, "Failed to create Python dictionary for function arguments");
+    }
+    for (int i = 0; i < nArgs; i++)
+    {
+        PyObject *pyVal = NULL;
+        if (argNulls[i])
+        {
+            Py_INCREF(Py_None);
+            pyVal = Py_None;
+        }
+        else
+        {
+            ConversionInfo localCinfo;
+            memset(&localCinfo, 0, sizeof(localCinfo));
+            localCinfo.atttypoid = argTypes[i];
+            pyVal = datumToPython(argDatums[i], argTypes[i], &localCinfo);
+        }
+        if (!pyVal)
+        {
+            Py_DECREF(py_argdict);
+            Py_DECREF(option_dict);
+            elog(ERROR, "Failed to convert argument %d to Python object", i);
+        }
+        if (PyDict_SetItemString(py_argdict, argNames[i], pyVal) != 0)
+        {
+            Py_DECREF(pyVal);
+            Py_DECREF(py_argdict);
+            Py_DECREF(option_dict);
+            elog(ERROR, "Failed to set argument '%s' in Python dictionary", argNames[i]);
+        }
+        Py_DECREF(pyVal); /* PyDict_SetItemString increases reference count */
+    }
+    errorCheck();
+
+    /* Check if the "wrapper" key exists in the options dictionary */
+    PyObject *p_wrapper = PyDict_GetItemString(option_dict, "wrapper");
+    if (p_wrapper == NULL)
+    {
+        Py_DECREF(py_argdict);
+        Py_DECREF(option_dict);
+        elog(ERROR, "Missing 'wrapper' key in options");
+    }
+
+    /* Get the class from the wrapper value (which is a borrowed reference) */
+    PyObject *p_class = getClass(p_wrapper);
+    if (p_class == NULL || !PyCallable_Check(p_class))
+    {
+        Py_XDECREF(p_class);
+        Py_DECREF(py_argdict);
+        Py_DECREF(option_dict);
+        elog(ERROR, "Could not get callable wrapper class from 'wrapper' option");
+    }
+
+    /* Remove the "wrapper" key from the dictionary; check for errors */
+    if (PyDict_DelItemString(option_dict, "wrapper") < 0)
+    {
+        Py_DECREF(p_class);
+        Py_DECREF(py_argdict);
+        Py_DECREF(option_dict);
+        elog(ERROR, "Failed to remove 'wrapper' key from options");
+    }
+
+    /* 5) Then get the class method "execute_static". */
+    PyObject *p_func = PyObject_GetAttrString(p_class, "execute_static");
+    Py_DECREF(p_class);
+    if (!p_func || !PyCallable_Check(p_func))
+    {
+        Py_XDECREF(p_func);
+        Py_DECREF(py_argdict);
+        Py_DECREF(option_dict);
+        elog(ERROR, "No callable 'execute_static' found in DASFunction");
+    }
+
+    PyObject* p_env = get_environment_dict();
+    if (!p_env) {
+        // The environment wasn't collected (an error), send None.
+        p_env = Py_None;
+    }
+
+    /* 6) Build final arguments for p_func.
+     * Assume execute_static expects two parameters:
+     *   - a dict of options,
+     *   - a dict of arguments keyed by name.
+     */
+    PyObject *call_args = PyTuple_New(3);
+    PyTuple_SetItem(call_args, 0, option_dict);  /* tuple takes ownership */
+    PyTuple_SetItem(call_args, 1, py_argdict);   /* tuple takes ownership */
+    PyTuple_SetItem(call_args, 2, p_env);        /* tuple takes ownership */
+
+    /* 7) Call the Python method. */
+    PyObject *p_result = PyObject_CallObject(p_func, call_args);
+    Py_DECREF(call_args);
+    Py_DECREF(p_func);
+    errorCheck();
+
+    if (!p_result || p_result == Py_None)
+    {
+        Py_XDECREF(p_result);
+        elog(ERROR, "execute_static returned non-string or None");
+    }
+
+    /* 8) Convert the Python result to a Postgres Datum using pyobjectToDatum. */
+    StringInfo buffer = makeStringInfo();
+    ConversionInfo* retCinfo;
+
+    /* Retrieve the type’s output function and related info */
+    AttInMetadata* meta = build_dummy_attinmeta(retType);
+    initConversioninfo(&retCinfo, meta);
+
+    /* Optionally set other retCinfo fields if needed */
+    Datum resultDatum = pyobjectToDatum(p_result, buffer, retCinfo);
+    Py_DECREF(p_result);
+    pfree(buffer->data);
+    pfree(buffer);
+    /* Return the converted Datum. */
+    return resultDatum;
+
 }
