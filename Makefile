@@ -2,7 +2,7 @@ srcdir       = .
 MODULE_big   = multicorn
 OBJS         =  src/errors.o src/python.o src/query.o src/multicorn.o
 # Uncomment to have symbols in debuggers
-PG_CFLAGS = -g -O0
+# PG_CFLAGS = -g -O0
 
 
 DATA         = $(filter-out $(wildcard sql/*--*.sql),$(wildcard sql/*.sql))

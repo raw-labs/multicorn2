@@ -56,6 +56,7 @@ static PyObject   *datumFloat4ToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumFloat8ToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumDateToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumTimestampToPython(Datum datum, ConversionInfo * cinfo);
+static PyObject   *datumTimestampTzToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumIntToPython(Datum datum, ConversionInfo * cinfo);
 static PyObject   *datumArrayToPython(Datum datum, Oid type, ConversionInfo * cinfo);
 static PyObject   *datumByteaToPython(Datum datum, ConversionInfo * cinfo);
@@ -1898,7 +1899,56 @@ datumTimestampToPython(Datum datum, ConversionInfo * cinfo)
                                         pg_tm_value->tm_mday,
                                         pg_tm_value->tm_hour,
                                         pg_tm_value->tm_min,
-                                        pg_tm_value->tm_sec, 0);
+                                        pg_tm_value->tm_sec,
+                                        fsec);
+    pfree(pg_tm_value);
+    return result;
+}
+
+/*
+ * Converts a PostgreSQL Timestamp with Time Zone Datum into a Python datetime object.
+ *
+ * Note: This conversion produces a naive Python datetime. The timestamp's timezone
+ *       information is used only to compute local time, and is not preserved in the
+ *       resulting Python object. If a timezone-aware datetime is required, additional
+ *       handling is necessary.
+ *
+ * Examples: With a session_timezone Europe/Zurich (+01:00)
+ * timestamp with time zone '2001-01-10 10:00:00+02:00' => '2001-01-10 09:00:00
+ * timestamp with time zone '2001-01-10 10:00:00+01:00' => '2001-01-10 10:00:00 // same time
+ * timestamp with time zone '2001-01-10 10:00:00+00:00' => '2001-01-10 11:00:00
+ * timestamp with time zone '2001-01-10 10:00:00-01:00' => '2001-01-10 12:00:00
+ *
+ */
+PyObject *
+datumTimestampTzToPython(Datum datum, ConversionInfo * cinfo)
+{
+    struct pg_tm *pg_tm_value = palloc(sizeof(struct pg_tm));
+    PyObject   *result;
+    fsec_t		fsec;
+    int tzp;
+    const char* tzn;
+
+    PyDateTime_IMPORT;
+    /*
+     * Convert the timestamp Datum into a local broken-down time.
+     * This function interprets the Datum using the session timezone,
+     * extracting components into pg_tm_value and computing fractional seconds.
+     * The timezone offset (tzp) and name (tzn) are also set, but not used below.
+     */
+    timestamp2tm(DatumGetTimestampTz(datum), &tzp, pg_tm_value, &fsec,
+                 &tzn, session_timezone);
+    /*
+     * Create a Python datetime object using the extracted components.
+     * The resulting datetime is naive (i.e., without tzinfo).
+     */
+    result = PyDateTime_FromDateAndTime(pg_tm_value->tm_year,
+                                        pg_tm_value->tm_mon,
+                                        pg_tm_value->tm_mday,
+                                        pg_tm_value->tm_hour,
+                                        pg_tm_value->tm_min,
+                                        pg_tm_value->tm_sec,
+                                        fsec);
     pfree(pg_tm_value);
     return result;
 }
@@ -2065,6 +2115,8 @@ datumToPython(Datum datum, Oid type, ConversionInfo * cinfo)
             return datumDecimalToPython(datum, cinfo);
         case DATEOID:
             return datumDateToPython(datum, cinfo);
+        case TIMESTAMPTZOID:
+            return datumTimestampTzToPython(datum, cinfo);
         case TIMESTAMPOID:
             return datumTimestampToPython(datum, cinfo);
         case FLOAT4OID:
