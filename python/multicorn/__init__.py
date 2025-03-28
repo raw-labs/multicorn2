@@ -512,6 +512,39 @@ class TransactionAwareForeignDataWrapper(ForeignDataWrapper):
         self._init_transaction_state()
 
 
+class ForeignFunction(object):
+    """
+    Class that represents an RPC-like function call from DAS, exposed as a Postgres function.
+    It can call the remote function via gRPC and return the result.
+    """
+    def execute(
+        self,
+        named_args=None,
+        env=None
+    ):
+        """
+        Execute the remote function.
+        """
+        pass
+
+    @classmethod
+    def execute_static(cls, options, named_args=None, env=None):
+        """
+        One-shot static helper to create a temporary ForeignFunction instance,
+        call execute(), and return the result.
+        """
+
+        # TODO instances could be cached by the options they were configured with, to avoid
+        # recreating a new gRPC channel
+
+        ephemeral = cls(options)
+
+        return ephemeral.execute(
+            named_args=named_args or {},
+            env=env
+        )
+
+
 """Code from python2.7 importlib.import_module."""
 """Backport of importlib.import_module from 3.x."""
 # While not critical (and in no way guaranteed!), it would be nice to keep this
