@@ -34,6 +34,30 @@ void extractClauseFromScalarArrayOpExpr(
     ScalarArrayOpExpr *node,
     List **quals);
 
+static void
+extractClauseFromBoolExpr(
+#if PG_VERSION_NUM >= 140000
+    PlannerInfo *root,
+#endif
+    Relids base_relids,
+    BoolExpr *bool_expr,
+    List **quals);
+
+static void extractClauseFromBooleanTest(
+#if PG_VERSION_NUM >= 140000
+    PlannerInfo *root,
+#endif
+    Relids base_relids,
+    BooleanTest *node,
+    List **quals);
+static void extractClauseFromBoolVar(
+#if PG_VERSION_NUM >= 140000
+    PlannerInfo *root,
+#endif
+    Relids base_relids,
+    Var *var,
+    List **quals);
+
 char	   *getOperatorString(Oid opoid);
 
 MulticornBaseQual *makeQual(AttrNumber varattno, char *opname, Expr *value,
@@ -321,6 +345,43 @@ extractRestrictions(
 #endif
                                     base_relids, (ScalarArrayOpExpr *) node, quals);
             break;
+
+        case T_Var:
+            /*
+             * e.g. WHERE my_bool_col
+             * so interpret it as "my_bool_col = TRUE".
+             */
+            extractClauseFromBoolVar(
+#if PG_VERSION_NUM >= 140000
+                                    (PlannerInfo *) root,
+#endif
+                                    base_relids, (Var *) node, quals);
+            break;
+
+        case T_BoolExpr:
+            /*
+             * e.g. NOT
+             *
+             */
+            extractClauseFromBoolExpr(
+#if PG_VERSION_NUM >= 140000
+                root,
+#endif
+                base_relids, (BoolExpr *) node, quals);
+            break;
+
+        /*
+         *   (IS TRUE / IS FALSE / IS UNKNOWN)
+         */
+        case T_BooleanTest:
+            extractClauseFromBooleanTest(
+#if PG_VERSION_NUM >= 140000
+                                    (PlannerInfo *) root,
+#endif
+                                    base_relids, (BooleanTest *) node, quals);
+            break;
+
+
         default:
             {
                 ereport(WARNING,
@@ -448,7 +509,191 @@ extractClauseFromNullTest(Relids base_relids,
     }
 }
 
+/*
+ * Extract a qual from a BoolExpr when it is of the form NOT var,
+ * and var is a boolean attribute of our base relation.
+ */
+void
+extractClauseFromBoolExpr(
+#if PG_VERSION_NUM >= 140000
+    PlannerInfo *root,
+#endif
+    Relids base_relids,
+    BoolExpr *expr,
+    List **quals)
+{
+    elog(DEBUG3, "entering extractClauseFromBoolExpr()");
 
+    /*
+     * We handle only (NOT Var).
+     */
+    if (expr->boolop != NOT_EXPR || list_length(expr->args) != 1)
+        return;
+
+    /* Grab the single argument of the NOT. */
+    Node *arg = (Node *) linitial(expr->args);
+
+    /* We only transform "NOT Var" if it references just our base relation. */
+    if (contain_volatile_functions(arg))
+        return;
+
+    if (!bms_is_subset(base_relids,
+                       pull_varnos(
+#if PG_VERSION_NUM >= 140000
+                           root,
+#endif
+                           arg)
+                      ))
+        return;
+
+    /* Now check if the argument is indeed a Var. */
+    if (IsA(arg, Var))
+    {
+        Var *var = (Var *) arg;
+
+        /* We generally skip system columns, varattno < 1. */
+        if (var->varattno < 1)
+            return;
+
+        /* Optionally, check if it is actually a BOOLOID column. */
+        if (var->vartype != BOOLOID)
+            return;
+
+        /* "NOT var" means var = false in logic. */
+        *quals = lappend(*quals,
+                         makeQual(
+                             var->varattno,
+                             "=",
+                             (Expr *) makeBoolConst(false /* value */,
+                                                    false /* isnull */),
+                             false,  /* is array? */
+                             false   /* useOr for array ops? */
+                         ));
+    }
+}
+
+/* IS TRUE / IS FALSE
+ * Example:  col IS TRUE   =>  col = TRUE
+ *           col IS NOT TRUE => col <> TRUE
+ * (And similarly for IS FALSE, etc.)
+ */
+
+static void
+extractClauseFromBooleanTest(
+#if PG_VERSION_NUM >= 140000
+    PlannerInfo *root,
+#endif
+    Relids base_relids,
+    BooleanTest *node,
+    List **quals)
+{
+    if (contain_volatile_functions((Node *) node->arg)) return;
+    if (!bms_is_subset(base_relids,
+                pull_varnos(
+#if PG_VERSION_NUM >= 140000
+                   root,
+#endif
+                   (Node*)(node->arg)
+                )))
+        return;
+
+    if (IsA(node->arg, Var))
+    {
+        Var *var = (Var *) node->arg;
+
+        if (var->varattno >= 1)
+        {
+            MulticornConstQual *newqual = palloc0(sizeof(MulticornConstQual));
+            newqual->base.varattno = var->varattno;
+            newqual->base.right_type = T_Const;
+            newqual->base.isArray   = false;
+            newqual->base.useOr     = false;
+            newqual->base.typeoid   = BOOLOID;
+
+            switch (node->booltesttype)
+            {
+                case IS_TRUE:
+                    newqual->base.opname = "=";
+                    newqual->value  = BoolGetDatum(true);
+                    newqual->isnull = false;
+                    break;
+                case IS_NOT_TRUE:
+                    newqual->base.opname = "<>";
+                    newqual->value  = BoolGetDatum(true);
+                    newqual->isnull = false;
+                    break;
+                case IS_FALSE:
+                    newqual->base.opname = "=";
+                    newqual->value  = BoolGetDatum(false);
+                    newqual->isnull = false;
+                    break;
+                case IS_NOT_FALSE:
+                    newqual->base.opname = "<>";
+                    newqual->value  = BoolGetDatum(false);
+                    newqual->isnull = false;
+                    break;
+                default:
+                    /* skip */
+                    PyErr_Clear(); /* defensive cleanup, ensuring no lingering
+                                      Python exceptions stay in the Python
+                                      runtime after we skip out of the
+                                      function. */
+                    return;
+            }
+            *quals = lappend(*quals, newqual);
+        }
+    }
+}
+
+/* WHERE x (x is a boolean column) */
+static void
+extractClauseFromBoolVar(
+#if PG_VERSION_NUM >= 140000
+    PlannerInfo *root,
+#endif
+    Relids base_relids,
+    Var *var,
+    List **quals)
+{
+    /*
+     * If Postgres writes a plan node with a bare boolean Var,
+     * it is effectively "Var = TRUE" by default.
+     * Make sure var->varattno >= 1 and var->varno is part of base_relids.
+     */
+
+    /* Skip if referencing something other than this base relation. */
+    if (!bms_is_subset(base_relids,
+                pull_varnos(
+#if PG_VERSION_NUM >= 140000
+                   root,
+#endif
+                   (Node *) var
+                  )))
+    return;
+
+    /* Skip system columns or if not a valid attribute number. */
+    if (var->varattno < 1)
+        return;
+
+    /* Optionally, ensure it's indeed a boolean. */
+    if (var->vartype != BOOLOID)
+        return;
+
+    /* Build a "Var = TRUE" pushdown. */
+    MulticornConstQual *newqual = palloc0(sizeof(MulticornConstQual));
+
+    newqual->base.varattno = var->varattno;
+    newqual->base.right_type = T_Const;
+    newqual->base.opname = "=";       /* Compare to true */
+    newqual->base.isArray = false;
+    newqual->base.useOr = false;
+    newqual->base.typeoid = BOOLOID;  /* right side is boolean */
+
+    newqual->value  = BoolGetDatum(true);
+    newqual->isnull = false;
+
+    *quals = lappend(*quals, newqual);
+}
 
 /*
  *	Returns a "Value" node containing the string name of the column from a var.
