@@ -1001,23 +1001,23 @@ getDeparsedSortGroup(PyObject *sortKey)
 }
 
 /*
- * get_environment_dict:
+ * get_http_headers:
  *
- * Queries the "environment" table (which has two TEXT columns: key and value)
+ * Queries the "$http_headers" table (which has two TEXT columns: header and value)
  * and returns a new Python dictionary mapping keys to values.
  *
  * Returns: A new reference to a Python dict on success, or NULL on any failure.
  */
 static PyObject *
-get_environment_dict(void)
+get_http_headers(void)
 {
-    PyObject   *env_dict = NULL;
+    PyObject   *http_headers = NULL;
     int         ret;
 
     /* Create a new empty Python dictionary */
-    env_dict = PyDict_New();
-    if (env_dict == NULL) {
-        elog(WARNING, "Couldn't allocate environment data structure");
+    http_headers = PyDict_New();
+    if (http_headers == NULL) {
+        elog(WARNING, "Couldn't allocate http_headers data structure");
         return NULL;
     }
 
@@ -1025,7 +1025,7 @@ get_environment_dict(void)
     if ((ret = SPI_connect()) != SPI_OK_CONNECT)
     {
         elog(WARNING, "SPI_connect failed");
-        Py_DECREF(env_dict);
+        Py_DECREF(http_headers);
         return NULL;
     }
 
@@ -1033,7 +1033,7 @@ get_environment_dict(void)
     /* Use PG_TRY/PG_CATCH to catch errors from SPI_exec */
     PG_TRY();
     {
-        ret = SPI_exec("SELECT key, value FROM environment", 0);
+        ret = SPI_exec("SELECT header, value FROM \"$http_headers\"", 0);
     }
     PG_CATCH();
     {
@@ -1043,16 +1043,16 @@ get_environment_dict(void)
         {
             /* Table doesn't exist; Ignore (for backward compatibility). */
             FlushErrorState();
-            elog(DEBUG3, "No environment.");
+            elog(DEBUG3, "No HTTP headers.");
             SPI_finish();
-            env_dict = PyDict_New();
-            return env_dict;
+            http_headers = PyDict_New();
+            return http_headers;
         }
         else
         {
             /* Log the error (e.g. table exists but didn't have the expected columns,
              * or it's not readable, etc.) */
-            elog(WARNING, "Environment query failed: %s", edata->message);
+            elog(WARNING, "HTTP headers query failed: %s", edata->message);
             SPI_finish();
             return NULL;
         }
@@ -1061,8 +1061,8 @@ get_environment_dict(void)
     if (ret != SPI_OK_SELECT)
     {
         SPI_finish();
-        elog(WARNING, "SPI_exec failed for environment query");
-        Py_DECREF(env_dict);
+        elog(WARNING, "SPI_exec failed for HTTP headers query");
+        Py_DECREF(http_headers);
         return NULL;
     }
 
@@ -1071,16 +1071,16 @@ get_environment_dict(void)
         TupleDesc tupdesc = SPI_tuptable->tupdesc;
         uint64 i;
 
-        Oid key_coltype, value_coltype;
-        key_coltype = SPI_gettypeid(tupdesc, 1);
-        if (key_coltype != TEXTOID && key_coltype != VARCHAROID) {
-            elog(WARNING, "environment key: wrong OID type %u", key_coltype);
+        Oid header_coltype, value_coltype;
+        header_coltype = SPI_gettypeid(tupdesc, 1);
+        if (header_coltype != TEXTOID && header_coltype != VARCHAROID) {
+            elog(WARNING, "HTTP header key: wrong OID type %u", header_coltype);
             SPI_finish();
             return NULL;
         }
         value_coltype = SPI_gettypeid(tupdesc, 2);
         if (value_coltype != TEXTOID && value_coltype != VARCHAROID) {
-            elog(WARNING, "environment value: wrong OID type %u", value_coltype);
+            elog(WARNING, "HTTP header value: wrong OID type %u", value_coltype);
             SPI_finish();
             return NULL;
         }
@@ -1088,54 +1088,198 @@ get_environment_dict(void)
         for (i = 0; i < SPI_processed; i++)
         {
             HeapTuple tuple = SPI_tuptable->vals[i];
-            bool isnull_key = false, isnull_val = false;
-            Datum key_datum = SPI_getbinval(tuple, tupdesc, 1, &isnull_key);
+            bool isnull_header = false, isnull_val = false;
+            Datum header_datum = SPI_getbinval(tuple, tupdesc, 1, &isnull_header);
             Datum value_datum = SPI_getbinval(tuple, tupdesc, 2, &isnull_val);
 
             /* Skip rows with any null values */
-            if (isnull_key || isnull_val) {
+            if (isnull_header || isnull_val) {
                 continue;
             }
 
             /* Convert the Datum values to C strings */
-            char *key_cstr = TextDatumGetCString(key_datum);
+            char *header_cstr = TextDatumGetCString(header_datum);
             char *value_cstr = TextDatumGetCString(value_datum);
 
             /* Create Python Unicode objects from the C strings */
-            PyObject *py_key = PyUnicode_FromString(key_cstr);
+            PyObject *py_header = PyUnicode_FromString(header_cstr);
             PyObject *py_value = PyUnicode_FromString(value_cstr);
 
             /* Free the palloc'd strings if needed */
-            pfree(key_cstr);
+            pfree(header_cstr);
             pfree(value_cstr);
 
-            if (!py_key || !py_value)
+            if (!py_header || !py_value)
             {
-                elog(WARNING, "Couldn't convert environment entry (key=%p, value=%p)", py_key, py_value);
-                Py_XDECREF(py_key);
+                elog(WARNING, "Couldn't convert HTTP header (header=%p, value=%p)", py_header, py_value);
+                Py_XDECREF(py_header);
                 Py_XDECREF(py_value);
-                Py_DECREF(env_dict);
+                Py_DECREF(http_headers);
                 SPI_finish();
                 return NULL;
             }
 
             /* Insert into the Python dictionary */
-            if (PyDict_SetItem(env_dict, py_key, py_value) != 0)
+            if (PyDict_SetItem(http_headers, py_header, py_value) != 0)
             {
                 elog(WARNING, "Couldn't insert dictionary entry");
-                Py_DECREF(py_key);
+                Py_DECREF(py_header);
                 Py_DECREF(py_value);
-                Py_DECREF(env_dict);
+                Py_DECREF(http_headers);
                 SPI_finish();
                 return NULL;
             }
-            Py_DECREF(py_key);
+            Py_DECREF(py_header);
             Py_DECREF(py_value);
         }
     }
 
     SPI_finish();
-    return env_dict;
+    return http_headers;
+}
+
+/*
+ * get_scopes:
+ *
+ * Queries the "scopes" table (which is assumed to have one TEXT column: token)
+ * and returns a new Python list of strings.
+ *
+ * Returns: A new reference to a Python list on success, or NULL on any error.
+ */
+static PyObject *
+get_scopes(void)
+{
+    PyObject   *py_scopes = NULL;
+    int         ret;
+
+    /* Create a new empty Python list */
+    py_scopes = PyList_New(0);
+    if (py_scopes == NULL)
+    {
+        elog(WARNING, "Couldn't allocate scopes data structure");
+        return NULL;
+    }
+
+    /* Connect to SPI */
+    if ((ret = SPI_connect()) != SPI_OK_CONNECT)
+    {
+        elog(WARNING, "SPI_connect failed");
+        Py_DECREF(py_scopes);
+        return NULL;
+    }
+
+    /* Execute the query. 0 means no limit on the number of rows returned. */
+    PG_TRY();
+    {
+        ret = SPI_exec("SELECT token FROM scopes", 0);
+    }
+    PG_CATCH();
+    {
+        ErrorData *edata = CopyErrorData();
+
+        /* You can decide to treat an undefined table as an error */
+        if (edata->sqlerrcode == ERRCODE_UNDEFINED_TABLE)
+        {
+            FlushErrorState();
+            elog(DEBUG3, "No scopes table.");
+            SPI_finish();
+            Py_DECREF(py_scopes);
+            return NULL;
+        }
+        else
+        {
+            elog(WARNING, "scopes query failed: %s", edata->message);
+            SPI_finish();
+            Py_DECREF(py_scopes);
+            return NULL;
+        }
+    }
+    PG_END_TRY();
+
+    if (ret != SPI_OK_SELECT)
+    {
+        elog(WARNING, "SPI_exec failed for scopes query");
+        SPI_finish();
+        Py_DECREF(py_scopes);
+        return NULL;
+    }
+
+    if (SPI_processed > 0 && SPI_tuptable != NULL)
+    {
+        TupleDesc tupdesc = SPI_tuptable->tupdesc;
+        uint64 i;
+
+        /* Expect exactly one column */
+        if (tupdesc->natts != 1)
+        {
+            elog(WARNING, "scopes table has wrong number of columns: %d", tupdesc->natts);
+            SPI_finish();
+            Py_DECREF(py_scopes);
+            return NULL;
+        }
+
+        /* Check column type */
+        Oid coltype = SPI_gettypeid(tupdesc, 1);
+        if (coltype != TEXTOID && coltype != VARCHAROID)
+        {
+            elog(WARNING, "scopes column: wrong OID type %u", coltype);
+            SPI_finish();
+            Py_DECREF(py_scopes);
+            return NULL;
+        }
+
+        for (i = 0; i < SPI_processed; i++)
+        {
+            HeapTuple tuple = SPI_tuptable->vals[i];
+            bool isnull = false;
+            Datum datum = SPI_getbinval(tuple, tupdesc, 1, &isnull);
+
+            if (isnull)
+            {
+                /* The token string should not be null */
+                elog(WARNING, "scopes query returned null");
+                SPI_finish();
+                Py_DECREF(py_scopes);
+                return NULL;
+            }
+
+            /* Convert the Datum value to C string */
+            char *cstr = TextDatumGetCString(datum);
+            if (cstr == NULL)
+            {
+                elog(WARNING, "Couldn't convert token datum to C string");
+                SPI_finish();
+                Py_DECREF(py_scopes);
+                return NULL;
+            }
+
+            /* Create Python Unicode object from the C string */
+            PyObject *py_scope = PyUnicode_FromString(cstr);
+            pfree(cstr);
+
+            if (!py_scope)
+            {
+                elog(WARNING, "Couldn't convert token string to Python object");
+                SPI_finish();
+                Py_DECREF(py_scopes);
+                return NULL;
+            }
+
+            /* Append the Python string to the list */
+            if (PyList_Append(py_scopes, py_scope) != 0)
+            {
+                elog(WARNING, "Couldn't append token to list");
+                Py_DECREF(py_scope);
+                SPI_finish();
+                Py_DECREF(py_scopes);
+                return NULL;
+            }
+            Py_DECREF(py_scope);
+        }
+    }
+
+    SPI_finish();
+    return py_scopes;
 }
 
 /*
@@ -1215,12 +1359,6 @@ execute(ForeignScanState *node, ExplainState *es)
         Py_DECREF(python_sortkey);
     }
     {
-        PyObject* p_env = get_environment_dict();
-        if (!p_env) {
-            // The environment wasn't collected (an error), send None.
-            p_env = Py_None;
-        }
-
         PyObject * args,
                  * kwargs = PyDict_New();
         if(PyList_Size(p_pathkeys) > 0){
@@ -1231,6 +1369,16 @@ execute(ForeignScanState *node, ExplainState *es)
             PyDict_SetItemString(kwargs, "limit", PyLong_FromLongLong(state->limit));
         }
 
+        PyObject* scopes = get_scopes();
+        if (scopes) {
+            PyDict_SetItemString(kwargs, "scopes", scopes);
+        }
+
+        PyObject* http_headers = get_http_headers();
+        if (http_headers) {
+            PyDict_SetItemString(kwargs, "http_headers", http_headers);
+        }
+
         if(es != NULL){
             PyObject * verbose;
             if(es->verbose){
@@ -1239,7 +1387,7 @@ execute(ForeignScanState *node, ExplainState *es)
                 verbose = Py_False;
             }
             p_method = PyObject_GetAttrString(state->fdw_instance, "explain");
-            args = PyTuple_Pack(3, p_env, p_quals, p_targets_set);
+            args = PyTuple_Pack(2, p_quals, p_targets_set);
             PyDict_SetItemString(kwargs, "verbose", verbose);
             errorCheck();
         } else {
@@ -1248,12 +1396,17 @@ execute(ForeignScanState *node, ExplainState *es)
 
             p_method = PyObject_GetAttrString(state->fdw_instance, "execute");
             errorCheck();
-            args = PyTuple_Pack(3, p_env, p_quals, p_targets_set);
+            args = PyTuple_Pack(2, p_quals, p_targets_set);
             errorCheck();
         }
         p_iterable = PyObject_Call(p_method, args, kwargs);
         errorCheck();
-        Py_DECREF(p_env);
+        if (http_headers) {
+            Py_DECREF(http_headers);
+        }
+        if (scopes) {
+            Py_DECREF(scopes);
+        }
         Py_DECREF(p_method);
         Py_DECREF(args);
         Py_DECREF(kwargs);
@@ -2416,10 +2569,14 @@ foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *a
         elog(ERROR, "No callable 'execute_static' found in DASFunction");
     }
 
-    PyObject* p_env = get_environment_dict();
-    if (!p_env) {
-        // The environment wasn't collected (an error), send None.
-        p_env = Py_None;
+    PyObject* kwargs = PyDict_New();
+    PyObject* scopes = get_scopes();
+    if (scopes) {
+        PyDict_SetItemString(kwargs, "scopes", scopes);
+    }
+    PyObject* http_headers = get_http_headers();
+    if (http_headers) {
+        PyDict_SetItemString(kwargs, "http_headers", http_headers);
     }
 
     /* 6) Build final arguments for p_func.
@@ -2430,11 +2587,17 @@ foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *a
     PyObject *call_args = PyTuple_New(3);
     PyTuple_SetItem(call_args, 0, option_dict);  /* tuple takes ownership */
     PyTuple_SetItem(call_args, 1, py_argdict);   /* tuple takes ownership */
-    PyTuple_SetItem(call_args, 2, p_env);        /* tuple takes ownership */
 
     /* 7) Call the Python method. */
-    PyObject *p_result = PyObject_CallObject(p_func, call_args);
+    PyObject *p_result = PyObject_Call(p_func, call_args, kwargs);
     Py_DECREF(call_args);
+    if (http_headers) {
+        Py_DECREF(http_headers);
+    }
+    if (scopes) {
+        Py_DECREF(scopes);
+    }
+    Py_DECREF(kwargs);
     Py_DECREF(p_func);
     errorCheck();
 
