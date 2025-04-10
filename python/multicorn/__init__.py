@@ -269,7 +269,7 @@ class ForeignDataWrapper(object):
         """
         return []
 
-    def explain(self, env, quals, columns, sortkeys=None, limit=None, verbose=False):
+    def explain(self, quals, columns, sortkeys=None, limit=None, verbose=False, scopes=None, http_headers=None):
         """Hook called on explain.
 
         The arguments are the same as the :meth:`execute`, with the addition of
@@ -280,7 +280,7 @@ class ForeignDataWrapper(object):
         """
         return []
 
-    def execute(self, env, quals, columns, sortkeys=None, limit=None, planid=None):
+    def execute(self, quals, columns, sortkeys=None, limit=None, planid=None, scopes=None, http_headers=None):
         """Execute a query in the foreign data wrapper.
 
         This method is called at the first iteration.
@@ -520,7 +520,8 @@ class ForeignFunction(object):
     def execute(
         self,
         named_args=None,
-        env=None
+        scopes=None,
+        http_headers=None
     ):
         """
         Execute the remote function.
@@ -528,7 +529,7 @@ class ForeignFunction(object):
         pass
 
     @classmethod
-    def execute_static(cls, options, named_args=None, env=None):
+    def execute_static(cls, options, named_args=None, scopes=None, http_headers=None):
         """
         One-shot static helper to create a temporary ForeignFunction instance,
         call execute(), and return the result.
@@ -541,7 +542,8 @@ class ForeignFunction(object):
 
         return ephemeral.execute(
             named_args=named_args or {},
-            env=env
+            scopes=scopes,
+            http_headers=http_headers
         )
 
 

@@ -30,6 +30,7 @@
 #include "fmgr.h"
 #include "port/atomics.h"
 #include "catalog/namespace.h"
+#include "utils/guc.h"
 
 #if PG_VERSION_NUM >= 130000
 #include "common/hashfn.h" /* oid_hash */
@@ -138,6 +139,8 @@ HTAB	   *InstancesHash;
 static int fdw_unique_id;
 static pg_atomic_uint64 global_query_counter;
 
+static char *raw_http_headers = NULL;
+static char *raw_scopes = NULL;
 
 void
 _PG_init()
@@ -203,6 +206,22 @@ _PG_init()
 
     }
     MemoryContextSwitchTo(oldctx);
+    DefineCustomStringVariable("my.raw_http_headers",
+                               "A variable for passing HTTP headers (JSON array of objects with header/value).",
+                               "HTTP headers (in JSON)",
+                               &raw_http_headers ,        /* pointer to our global variable */
+                               NULL,                     /* default value (none) */
+                               PGC_USERSET,              /* can be set by the user */
+                               0,                        /* flags */
+                               NULL, NULL, NULL);
+    DefineCustomStringVariable("my.raw_scopes",
+                               "A variable for passing scopes (JSON array of strings).",
+                               "Scopes (in JSON)",
+                               &raw_scopes,
+                               NULL,                     /* default value (none) */
+                               PGC_USERSET,              /* can be set by the user */
+                               0,                        /* flags */
+                               NULL, NULL, NULL);
 }
 
 void
