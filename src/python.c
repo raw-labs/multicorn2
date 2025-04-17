@@ -20,6 +20,8 @@
 #include "access/xact.h"
 #include "utils/lsyscache.h"
 #include "executor/spi.h"
+#include "utils/jsonb.h"
+
 
 
 List	   *getOptions(Oid foreigntableid);
@@ -48,6 +50,8 @@ PyObject *paramDefToPython(List *paramdef, ConversionInfo ** cinfos,
                  Oid typeoid,
                  Datum value);
 
+Datum
+foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *argTypes, Datum *argDatums, bool *argNulls, Oid retType);
 
 PyObject   *datumToPython(Datum node, Oid typeoid, ConversionInfo * cinfo);
 static PyObject   *datumStringToPython(Datum node, ConversionInfo * cinfo);
@@ -1000,142 +1004,284 @@ getDeparsedSortGroup(PyObject *sortKey)
     return md;
 }
 
+/* Helper to copy a non-null-terminated string */
+static char *
+pstrndup(const char *src, size_t len)
+{
+    char *result = palloc(len + 1);
+    memcpy(result, src, len);
+    result[len] = '\0';
+    return result;
+}
+
 /*
- * get_environment_dict:
+ * get_http_headers
  *
- * Queries the "environment" table (which has two TEXT columns: key and value)
- * and returns a new Python dictionary mapping keys to values.
- *
- * Returns: A new reference to a Python dict on success, or NULL on any failure.
+ * Reads the session variable "my.raw_http_headers", which is expected to contain a JSON string
+ * representing an array of objects. Each object must have string fields "header" and "value".
+ * The function converts that JSON string to a JSONB Datum (using jsonb_in), verifies that the
+ * root is an array, then iterates over each object, converting the "header" and "value" strings
+ * to Python Unicode objects and inserting them into a Python dictionary (mapping header to value).
+ * In any error condition (e.g., missing field, wrong type), a warning is logged and the function
+ * returns NULL.
  */
 static PyObject *
-get_environment_dict(void)
+get_http_headers(void)
 {
-    PyObject   *env_dict = NULL;
-    int         ret;
-
-    /* Create a new empty Python dictionary */
-    env_dict = PyDict_New();
-    if (env_dict == NULL) {
-        elog(WARNING, "Couldn't allocate environment data structure");
+    /* Retrieve the GUC value */
+    const char *headers_value = GetConfigOptionByName("my.raw_http_headers", false, false);
+    if (headers_value == NULL || headers_value[0] == '\0')
+    {
+        elog(WARNING, "my.raw_http_headers is not set");
         return NULL;
     }
 
-    /* Connect to SPI */
-    if ((ret = SPI_connect()) != SPI_OK_CONNECT)
+    /*
+     * Convert the JSON string into a JSONB Datum.
+     * Note: Uses the built‑in jsonb_in function.
+     */
+    Datum jsonb_datum = DirectFunctionCall1(jsonb_in, CStringGetDatum(headers_value));
+    Jsonb *jb = DatumGetJsonbP(jsonb_datum);
+    if (JB_ROOT_IS_SCALAR(jb))
     {
-        elog(WARNING, "SPI_connect failed");
-        Py_DECREF(env_dict);
+        elog(WARNING, "Expected JSONB container for my.raw_http_headers, got a scalar");
         return NULL;
     }
 
-    /* Execute the query. 0 means no limit on the number of rows returned. */
-    /* Use PG_TRY/PG_CATCH to catch errors from SPI_exec */
-    PG_TRY();
+    if (!JB_ROOT_IS_ARRAY(jb))
     {
-        ret = SPI_exec("SELECT key, value FROM environment", 0);
-    }
-    PG_CATCH();
-    {
-        ErrorData *edata = CopyErrorData();
-        /* Check for undefined table error */
-        if (edata->sqlerrcode == ERRCODE_UNDEFINED_TABLE)
-        {
-            /* Table doesn't exist; Ignore (for backward compatibility). */
-            FlushErrorState();
-            elog(DEBUG3, "No environment.");
-            SPI_finish();
-            env_dict = PyDict_New();
-            return env_dict;
-        }
-        else
-        {
-            /* Log the error (e.g. table exists but didn't have the expected columns,
-             * or it's not readable, etc.) */
-            elog(WARNING, "Environment query failed: %s", edata->message);
-            SPI_finish();
-            return NULL;
-        }
-    }
-    PG_END_TRY();
-    if (ret != SPI_OK_SELECT)
-    {
-        SPI_finish();
-        elog(WARNING, "SPI_exec failed for environment query");
-        Py_DECREF(env_dict);
+        elog(WARNING, "Expected JSONB array for my.raw_http_headers, but got something else");
         return NULL;
     }
 
-    if (SPI_processed > 0 && SPI_tuptable != NULL)
+    /* For debugging, you could log internal header values if needed. */
+    JsonbContainer *container = (JsonbContainer *) VARDATA_ANY(jb);
+    /* Initialize a JsonbIterator */
+    JsonbIterator *it = JsonbIteratorInit(container);
+    JsonbValue v;
+    int r;
+
+    /* Expect the JSON to be an array. The first token should be WJB_BEGIN_ARRAY. */
+    r = JsonbIteratorNext(&it, &v, false);
+    if (r != WJB_BEGIN_ARRAY)
     {
-        TupleDesc tupdesc = SPI_tuptable->tupdesc;
-        uint64 i;
+        elog(WARNING, "Expected JSON array in my.raw_http_headers");
+        return NULL;
+    }
 
-        Oid key_coltype, value_coltype;
-        key_coltype = SPI_gettypeid(tupdesc, 1);
-        if (key_coltype != TEXTOID && key_coltype != VARCHAROID) {
-            elog(WARNING, "environment key: wrong OID type %u", key_coltype);
-            SPI_finish();
-            return NULL;
-        }
-        value_coltype = SPI_gettypeid(tupdesc, 2);
-        if (value_coltype != TEXTOID && value_coltype != VARCHAROID) {
-            elog(WARNING, "environment value: wrong OID type %u", value_coltype);
-            SPI_finish();
-            return NULL;
-        }
+    /* Create a new Python dictionary */
+    PyObject *py_dict = PyDict_New();
+    if (!py_dict)
+    {
+        elog(WARNING, "Failed to create Python dict");
+        return NULL;
+    }
 
-        for (i = 0; i < SPI_processed; i++)
+    /* Iterate through each element of the JSON array */
+    while ((r = JsonbIteratorNext(&it, &v, false)) != 0)
+    {
+        if (r == WJB_END_ARRAY)
+            break;
+
+        if (r == WJB_BEGIN_OBJECT)
         {
-            HeapTuple tuple = SPI_tuptable->vals[i];
-            bool isnull_key = false, isnull_val = false;
-            Datum key_datum = SPI_getbinval(tuple, tupdesc, 1, &isnull_key);
-            Datum value_datum = SPI_getbinval(tuple, tupdesc, 2, &isnull_val);
+            char *header = NULL;
+            char *value  = NULL;
 
-            /* Skip rows with any null values */
-            if (isnull_key || isnull_val) {
-                continue;
-            }
-
-            /* Convert the Datum values to C strings */
-            char *key_cstr = TextDatumGetCString(key_datum);
-            char *value_cstr = TextDatumGetCString(value_datum);
-
-            /* Create Python Unicode objects from the C strings */
-            PyObject *py_key = PyUnicode_FromString(key_cstr);
-            PyObject *py_value = PyUnicode_FromString(value_cstr);
-
-            /* Free the palloc'd strings if needed */
-            pfree(key_cstr);
-            pfree(value_cstr);
-
-            if (!py_key || !py_value)
+            /* Iterate through the keys/values in the object */
+            while ((r = JsonbIteratorNext(&it, &v, false)) != 0)
             {
-                elog(WARNING, "Couldn't convert environment entry (key=%p, value=%p)", py_key, py_value);
-                Py_XDECREF(py_key);
-                Py_XDECREF(py_value);
-                Py_DECREF(env_dict);
-                SPI_finish();
+                if (r == WJB_END_OBJECT)
+                    break;
+
+                if (r == WJB_KEY)
+                {
+                    /* Get the key name */
+                    char *key = v.val.string.val;
+                    int key_length = v.val.string.len;
+
+                    /* The next token should be the value */
+                    r = JsonbIteratorNext(&it, &v, false);
+                    if (r != WJB_VALUE)
+                    {
+                        elog(WARNING, "Expected a value for key '%.*s'", key_length, key);
+                        Py_DECREF(py_dict);
+                        return NULL;
+                    }
+
+                    if (v.type != jbvString)
+                    {
+                        elog(WARNING, "Expected string value for key '%.*s'", key_length, key);
+                        Py_DECREF(py_dict);
+                        return NULL;
+                    }
+
+                    /* Save the value based on the key.
+                     * Since the token string is not null-terminated, we compare both length and content.
+                     */
+                    if (key_length == strlen("header") && strncmp(key, "header", key_length) == 0)
+                        header = pstrndup(v.val.string.val, v.val.string.len);
+                    else if (key_length == strlen("value") && strncmp(key, "value", key_length) == 0)
+                        value = pstrndup(v.val.string.val, v.val.string.len);
+                }
+            } /* End of inner while for object */
+
+            /* Ensure both "header" and "value" were provided */
+            if (!header || !value)
+            {
+                elog(WARNING, "Missing field 'header' or 'value' in one of the JSON objects");
+                Py_DECREF(py_dict);
+                if (header)
+                    pfree(header);
+                if (value)
+                    pfree(value);
                 return NULL;
             }
 
-            /* Insert into the Python dictionary */
-            if (PyDict_SetItem(env_dict, py_key, py_value) != 0)
+            /* Convert C strings to Python Unicode objects */
+            PyObject *py_key = PyUnicode_FromString(header);
+            PyObject *py_value = PyUnicode_FromString(value);
+            if (!py_key || !py_value)
             {
-                elog(WARNING, "Couldn't insert dictionary entry");
+                elog(WARNING, "Failed to create Python string objects");
+                Py_XDECREF(py_key);
+                Py_XDECREF(py_value);
+                Py_DECREF(py_dict);
+                pfree(header);
+                pfree(value);
+                return NULL;
+            }
+            if (PyDict_SetItem(py_dict, py_key, py_value) != 0)
+            {
+                elog(WARNING, "Failed to insert item into Python dict");
                 Py_DECREF(py_key);
                 Py_DECREF(py_value);
-                Py_DECREF(env_dict);
-                SPI_finish();
+                Py_DECREF(py_dict);
+                pfree(header);
+                pfree(value);
                 return NULL;
             }
             Py_DECREF(py_key);
             Py_DECREF(py_value);
+            pfree(header);
+            pfree(value);
         }
+        else
+        {
+            /* Skip any tokens that are not the start of an object */
+            continue;
+        }
+    } /* End while over array */
+
+    return py_dict;
+}
+
+
+/*
+ * get_scopes
+ *
+ * Reads the session variable "my.raw_scopes", which is expected to contain a JSON string
+ * representing an array of strings, and converts it into a Python list of Unicode strings.
+ *
+ * The function converts the JSON string to a JSONB Datum (using jsonb_in), verifies that the
+ * root of the JSONB value is an array, then iterates over its elements. Each element must
+ * be a string, and is converted using PyUnicode_FromStringAndSize. In any error condition,
+ * a warning is issued using elog and the function returns NULL.
+ */
+static PyObject *
+get_scopes(void)
+{
+    /* Retrieve the GUC value */
+    const char *scopes_value = GetConfigOptionByName("my.raw_scopes", false, false);
+    if (scopes_value == NULL || scopes_value[0] == '\0')
+    {
+        elog(WARNING, "my.raw_scopes is not set");
+        return NULL;
     }
 
-    SPI_finish();
-    return env_dict;
+    /*
+     * Convert the JSON string into a JSONB Datum using jsonb_in.
+     */
+    Datum jsonb_datum = DirectFunctionCall1(jsonb_in, CStringGetDatum(scopes_value));
+    Jsonb *jb = DatumGetJsonbP(jsonb_datum);
+    if (JB_ROOT_IS_SCALAR(jb))
+    {
+        elog(WARNING, "Expected JSONB container for my.raw_scopes, got a scalar");
+        return NULL;
+    }
+
+    if (!JB_ROOT_IS_ARRAY(jb))
+    {
+        elog(WARNING, "Expected JSONB array for my.raw_scopes, but got something else");
+        return NULL;
+    }
+
+    /* Get the container pointer */
+    JsonbContainer *container = (JsonbContainer *) VARDATA_ANY(jb);
+    /* Initialize a JsonbIterator from the container */
+    JsonbIterator *it = JsonbIteratorInit(container);
+    JsonbValue v;
+    int r;
+
+    /* Expect the first token to be WJB_BEGIN_ARRAY */
+    r = JsonbIteratorNext(&it, &v, false);
+    if (r != WJB_BEGIN_ARRAY)
+    {
+        elog(WARNING, "Expected JSON array in my.raw_scopes");
+        return NULL;
+    }
+
+    /* Create an empty Python list */
+    PyObject *py_list = PyList_New(0);
+    if (!py_list)
+    {
+        elog(WARNING, "Failed to create Python list");
+        return NULL;
+    }
+
+    /* Iterate through each element in the JSON array */
+    while ((r = JsonbIteratorNext(&it, &v, false)) != 0)
+    {
+        if (r == WJB_END_ARRAY)
+            break;
+
+        /* Accept both WJB_VALUE and WJB_ELEM tokens for array elements */
+        if (r != WJB_VALUE && r != WJB_ELEM)
+        {
+            elog(WARNING, "Expected a value in my.raw_scopes array");
+            Py_DECREF(py_list);
+            return NULL;
+        }
+
+        if (v.type != jbvString)
+        {
+            elog(WARNING, "Expected string element in my.raw_scopes array");
+            Py_DECREF(py_list);
+            return NULL;
+        }
+
+        /* Create a Python Unicode string from the token.
+         * Since the token string is not null-terminated, use PyUnicode_FromStringAndSize.
+         */
+        PyObject *py_str = PyUnicode_FromStringAndSize(v.val.string.val, v.val.string.len);
+        if (!py_str)
+        {
+            elog(WARNING, "Failed to create Python string from my.raw_scopes element");
+            Py_DECREF(py_list);
+            return NULL;
+        }
+
+        if (PyList_Append(py_list, py_str) != 0)
+        {
+            elog(WARNING, "Failed to append Python string to list");
+            Py_DECREF(py_str);
+            Py_DECREF(py_list);
+            return NULL;
+        }
+        Py_DECREF(py_str);
+    }
+
+    return py_list;
 }
 
 /*
@@ -1215,12 +1361,6 @@ execute(ForeignScanState *node, ExplainState *es)
         Py_DECREF(python_sortkey);
     }
     {
-        PyObject* p_env = get_environment_dict();
-        if (!p_env) {
-            // The environment wasn't collected (an error), send None.
-            p_env = Py_None;
-        }
-
         PyObject * args,
                  * kwargs = PyDict_New();
         if(PyList_Size(p_pathkeys) > 0){
@@ -1231,6 +1371,16 @@ execute(ForeignScanState *node, ExplainState *es)
             PyDict_SetItemString(kwargs, "limit", PyLong_FromLongLong(state->limit));
         }
 
+        PyObject* scopes = get_scopes();
+        if (scopes) {
+            PyDict_SetItemString(kwargs, "scopes", scopes);
+        }
+
+        PyObject* http_headers = get_http_headers();
+        if (http_headers) {
+            PyDict_SetItemString(kwargs, "http_headers", http_headers);
+        }
+
         if(es != NULL){
             PyObject * verbose;
             if(es->verbose){
@@ -1239,7 +1389,7 @@ execute(ForeignScanState *node, ExplainState *es)
                 verbose = Py_False;
             }
             p_method = PyObject_GetAttrString(state->fdw_instance, "explain");
-            args = PyTuple_Pack(3, p_env, p_quals, p_targets_set);
+            args = PyTuple_Pack(2, p_quals, p_targets_set);
             PyDict_SetItemString(kwargs, "verbose", verbose);
             errorCheck();
         } else {
@@ -1248,12 +1398,17 @@ execute(ForeignScanState *node, ExplainState *es)
 
             p_method = PyObject_GetAttrString(state->fdw_instance, "execute");
             errorCheck();
-            args = PyTuple_Pack(3, p_env, p_quals, p_targets_set);
+            args = PyTuple_Pack(2, p_quals, p_targets_set);
             errorCheck();
         }
         p_iterable = PyObject_Call(p_method, args, kwargs);
         errorCheck();
-        Py_DECREF(p_env);
+        if (http_headers) {
+            Py_DECREF(http_headers);
+        }
+        if (scopes) {
+            Py_DECREF(scopes);
+        }
         Py_DECREF(p_method);
         Py_DECREF(args);
         Py_DECREF(kwargs);
@@ -2289,7 +2444,7 @@ int getModifyBatchSize(PyObject *fdw_instance)
  * specified return type. If the return type is an array, it adjusts the dimension 
  * count accordingly.
  */
-AttInMetadata *
+static AttInMetadata *
 build_dummy_attinmeta(Oid retType)
 {
     TupleDesc tupDesc;
@@ -2416,10 +2571,14 @@ foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *a
         elog(ERROR, "No callable 'execute_static' found in DASFunction");
     }
 
-    PyObject* p_env = get_environment_dict();
-    if (!p_env) {
-        // The environment wasn't collected (an error), send None.
-        p_env = Py_None;
+    PyObject* kwargs = PyDict_New();
+    PyObject* scopes = get_scopes();
+    if (scopes) {
+        PyDict_SetItemString(kwargs, "scopes", scopes);
+    }
+    PyObject* http_headers = get_http_headers();
+    if (http_headers) {
+        PyDict_SetItemString(kwargs, "http_headers", http_headers);
     }
 
     /* 6) Build final arguments for p_func.
@@ -2430,11 +2589,17 @@ foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *a
     PyObject *call_args = PyTuple_New(3);
     PyTuple_SetItem(call_args, 0, option_dict);  /* tuple takes ownership */
     PyTuple_SetItem(call_args, 1, py_argdict);   /* tuple takes ownership */
-    PyTuple_SetItem(call_args, 2, p_env);        /* tuple takes ownership */
 
     /* 7) Call the Python method. */
-    PyObject *p_result = PyObject_CallObject(p_func, call_args);
+    PyObject *p_result = PyObject_Call(p_func, call_args, kwargs);
     Py_DECREF(call_args);
+    if (http_headers) {
+        Py_DECREF(http_headers);
+    }
+    if (scopes) {
+        Py_DECREF(scopes);
+    }
+    Py_DECREF(kwargs);
     Py_DECREF(p_func);
     errorCheck();
 
