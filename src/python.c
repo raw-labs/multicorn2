@@ -2586,7 +2586,7 @@ foreign_function_execute(List *options_list, int nArgs, char **argNames,  Oid *a
      *   - a dict of options,
      *   - a dict of arguments keyed by name.
      */
-    PyObject *call_args = PyTuple_New(3);
+    PyObject *call_args = PyTuple_New(2);
     PyTuple_SetItem(call_args, 0, option_dict);  /* tuple takes ownership */
     PyTuple_SetItem(call_args, 1, py_argdict);   /* tuple takes ownership */
 
